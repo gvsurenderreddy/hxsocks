@@ -258,7 +258,7 @@ def main():
     print(hello)
     print('by v3aqb')
 
-    ssserver = HXSocksServer('hxp://127.0.0.1:80', HXSocksHandler)
+    ssserver = HXSocksServer('hxp://0.0.0.0:90', HXSocksHandler)
     ssserver.serve_forever()
 
 if __name__ == '__main__':
