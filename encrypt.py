@@ -28,7 +28,10 @@ import struct
 import logging
 from collections import defaultdict, deque
 from repoze.lru import lru_cache
-from ctypes_libsodium import Salsa20Crypto
+try:
+    from ctypes_libsodium import Salsa20Crypto
+except:
+    Salsa20Crypto = None
 try:
     from M2Crypto.EVP import Cipher
     import M2Crypto.Rand
