@@ -1,0 +1,11 @@
+encrypt key: pre-shared-key
+encrypt method: chacha20
+# request KEY
+client hello: iv(8 bytes) + encrypted_with_PSK(chr(0) + timestamp + len(bytes(client_pkey)) + bytes(client_pkey) +  sha256(bytes(client_pkey) + username + userpass))
+server hello: iv(8 bytes) + encrypted_with_PSK(chr(0) + len(bytes(server_pkey)) + bytes(server_pkey) +  sha256(bytes(client_pkey) + bytes(server_pkey) + username + userpass))
+Now client and server share a encryption key for further use
+client request: iv(8 bytes) + encrypted_with_PSK(chr(1) + md5(bytes(client_pkey))(16 bytes)) + iv(8 bytes) + encrypted(timestamp + len(host:port) + host:port + streaming data)
+server respond: iv(8 bytes) + encrypted_with_clientkey(chr(0) + streaming data)
+if md5(client_pkey)[:8] is invalid, server respond:
+iv(8 bytes) + encrypted(chr(1) + chr(bytes = a int from 64 to 255)) + os.urandom(bytes)
+not closing the socket, expect a client hello
