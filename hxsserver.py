@@ -42,6 +42,7 @@ import thread
 import threading
 import time
 import random
+import select
 import SocketServer
 import struct
 import binascii
@@ -177,13 +178,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 hostport = cipher.decrypt(self.rfile.read(host_len))
                 logging.info('CONNECT %s' % hostport)
                 addr, port = parse_hostport(hostport)
-                self.wfile.write(cipher.encrypt(chr(0)))
                 try:
                     remote = None
                     logging.info('server %s:%d request %s:%d from %s:%d' % (self.server.server_address[0], self.server.server_address[1],
                                  addr, port, self.client_address[0], self.client_address[1]))
-                    data = cipher.decrypt(self.connection.recv(self.bufsize))
+                    data = b''
                     if self.server.reverse:
+                        if select.select([self.connection], [], [], 0.0)[0]:
+                            data = cipher.decrypt(self.connection.recv(self.bufsize))
                         remote = create_connection(self.server.reverse, timeout=1)
                         if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
                             data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], self.server.key)).encode('latin1'), 1)
@@ -199,6 +201,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     if not remote:
                         remote = create_connection((addr, port), timeout=10)
                     remote.sendall(data)
+                    self.wfile.write(cipher.encrypt(chr(0)))
                     # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 except (IOError, OSError) as e:  # Connection refused
                     logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
