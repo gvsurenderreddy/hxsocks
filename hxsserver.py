@@ -55,7 +55,7 @@ from collections import defaultdict, deque
 from util import create_connection, parse_hostport
 from dh import DH
 
-method = 'rc4-md5'
+method = 'chacha20'
 users = {'user': 'pass'}
 
 
