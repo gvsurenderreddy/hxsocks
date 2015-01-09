@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2014 clowwindy
-# Copyright (c) 2014 v3aqb
+# Copyright (c) 2014 - 2015 v3aqb
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,7 +24,7 @@
 from __future__ import with_statement
 
 
-__version__ = '1.0.0'
+__version__ = '0.0.1'
 
 import sys
 try:
