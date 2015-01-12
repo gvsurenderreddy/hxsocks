@@ -1,0 +1,4 @@
+{
+    "servers": ["hxs://0.0.0.0:80/?method=&PSK=&reverse="],
+    "users": {"username": "passwd"}
+}

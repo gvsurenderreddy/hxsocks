@@ -49,6 +49,7 @@ import hashlib
 import logging
 import encrypt
 import os
+import json
 import urlparse
 from collections import defaultdict, deque
 from util import create_connection, parse_hostport
@@ -261,9 +262,16 @@ def main():
         hello += ' with gevent %s' % gevent.__version__
     print(hello)
     print('by v3aqb')
-
-    ssserver = HXSocksServer('hxp://0.0.0.0:90', HXSocksHandler)
-    ssserver.serve_forever()
+    servers = ['hxp://0.0.0.0:90']
+    if os.path.isfile('config.json'):
+        global users
+        d = json.loads(open('config.json').read())
+        users = d['users']
+        servers = d['servers']
+    for s in servers:
+        logging.info('starting server: %s' % s)
+        ssserver = HXSocksServer(s, HXSocksHandler)
+        threading.Thread(target=ssserver.serve_forever).start()
 
 if __name__ == '__main__':
     try:
