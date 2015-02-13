@@ -44,7 +44,6 @@ import random
 import select
 import SocketServer
 import struct
-import binascii
 import hashlib
 import logging
 import encrypt
@@ -57,15 +56,6 @@ from dh import DH
 
 default_method = 'rc4-md5'
 users = {'user': 'pass'}
-
-
-def hex2bytes(data):
-    data = '0' * (len(data) % 2) + data
-    return binascii.unhexlify(data)
-
-
-def bytes2hex(data):
-    return binascii.hexlify(data).decode()
 
 
 class KeyManager:
@@ -82,13 +72,13 @@ class KeyManager:
         if len(cls.userpkeys[user]) > 3:
             cls.del_key(cls.userpkeys[user][0])
         dh = DH()
-        shared_secret = dh.genKey(bytes2hex(client_pkey))
+        shared_secret = dh.genKey(client_pkey)
         client_pkey = hashlib.md5(client_pkey).digest()
         cls.userpkeys[user].append(client_pkey)
         cls.pkeyuser[client_pkey] = user
         cls.pkeykey[client_pkey] = shared_secret
         cls.pkeytime[client_pkey] = time.time()
-        return hex2bytes(dh.hexPub), users[user]
+        return dh.getPubKey(), users[user]
 
     @classmethod
     def check_key(cls, pubk):
