@@ -1,3 +1,4 @@
 hxsocks
 ==================
-hi
+a multi-user, PFS-like shadowsocks.
+

@@ -114,17 +114,3 @@ ciphers = {
     b'salsa20': (32, 8, Salsa20Crypto),
     b'chacha20': (32, 8, Salsa20Crypto),
 }
-
-
-def test_salsa20():
-    cipher = Salsa20Crypto(b'salsa20', b'k' * 32, b'i' * 16, 1)
-    decipher = Salsa20Crypto(b'salsa20', b'k' * 32, b'i' * 16, 0)
-
-
-def test_chacha20():
-    cipher = Salsa20Crypto(b'chacha20', b'k' * 32, b'i' * 16, 1)
-    decipher = Salsa20Crypto(b'chacha20', b'k' * 32, b'i' * 16, 0)
-
-if __name__ == '__main__':
-    test_chacha20()
-    test_salsa20()
