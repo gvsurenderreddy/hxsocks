@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import random
+import binascii
 from M2Crypto import EC
 
 
@@ -20,7 +21,8 @@ class DH(object):
     def genKey(self, otherKey):
         buf = buffer(otherKey)
         pk = EC.pub_key_from_der(buf)
-        return self.ec.compute_dh_key(pk)
+        data = self.ec.compute_dh_key(pk)
+        return binascii.hexlify(data).decode()
 
 
 if __name__ == '__main__':

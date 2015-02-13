@@ -160,6 +160,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     rint = random.randint(64, 255)
                     self.wfile.write(cipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     continue
+                user = KeyManager.pkeyuser[client_pkey]
                 cipher = encrypt.Encryptor(KeyManager.pkeykey[client_pkey], self.server.method, servermode=0)
                 ts = cipher.decrypt(self.rfile.read(cipher.iv_len() + 4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
@@ -179,9 +180,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             data = cipher.decrypt(self.connection.recv(self.bufsize))
                         remote = create_connection(self.server.reverse, timeout=1)
                         if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
-                            data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], self.server.key)).encode('latin1'), 1)
+                            data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], user)).encode('latin1'), 1)
                         else:
-                            a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], self.server.key)
+                            a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], user)
                             remote.sendall(a.encode('latin1'))
                             remoterfile = remote.makefile('rb', 0)
                             d = remoterfile.readline()
