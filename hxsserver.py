@@ -128,8 +128,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
 
     def handle(self):
         close = 0
+        pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=0)
         while not close:
-            pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=0)
             cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
             cmd = ord(pskcipher.decrypt(self.rfile.read(cmd_len)))
             if cmd == 0:  # client key exchange
