@@ -168,6 +168,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 ts = cipher.decrypt(self.rfile.read(cipher.iv_len + 4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
+                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     return
                 host_len = ord(cipher.decrypt(self.rfile.read(1)))
                 hostport = cipher.decrypt(self.rfile.read(host_len))
