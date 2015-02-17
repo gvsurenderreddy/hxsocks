@@ -55,6 +55,8 @@ from dh import DH
 
 default_method = 'rc4-md5'
 users = {'user': 'pass'}
+salt = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
+ctx = b'hxsocks'
 
 
 class KeyManager:
@@ -164,7 +166,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     return
                 user = KeyManager.pkeyuser[client_pkey]
-                cipher = encrypt.Encryptor(KeyManager.pkeykey[client_pkey], self.server.method, servermode=0)
+                cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, servermode=0)
                 ts = cipher.decrypt(self.rfile.read(cipher.iv_len + 4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
