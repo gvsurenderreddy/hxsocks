@@ -193,7 +193,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     if not remote:
                         remote = create_connection((addr, port), timeout=10)
                     remote.sendall(data)
-                    self.wfile.write(cipher.encrypt(chr(0)))
+                    self.wfile.write(pskcipher.encrypt(chr(0)))
                     # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 except (IOError, OSError) as e:  # Connection refused
                     logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
