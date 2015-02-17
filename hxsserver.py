@@ -129,16 +129,17 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
     def handle(self):
         close = 0
         while not close:
-            cipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=0)
-            cmd = ord(cipher.decrypt(self.rfile.read(cipher.iv_len + 1)))
+            pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=0)
+            cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
+            cmd = ord(pskcipher.decrypt(self.rfile.read(cmd_len)))
             if cmd == 0:  # client key exchange
-                ts = cipher.decrypt(self.rfile.read(4))
+                ts = pskcipher.decrypt(self.rfile.read(4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
                     return
-                pklen = struct.unpack('>H', cipher.decrypt(self.rfile.read(2)))[0]
-                client_pkey = cipher.decrypt(self.rfile.read(pklen))
-                client_auth = cipher.decrypt(self.rfile.read(32))
+                pklen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
+                client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
+                client_auth = pskcipher.decrypt(self.rfile.read(32))
                 for user, passwd in users.items():
                     if hashlib.sha256(client_pkey + user.encode() + passwd.encode()).digest() == client_auth:
                         client = user
@@ -149,15 +150,15 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 pkey, passwd = KeyManager.create_key(client, client_pkey)
                 if pkey:
                     data = chr(0) + struct.pack('>H', len(pkey)) + pkey + hashlib.sha256(client_pkey + pkey + user.encode() + passwd.encode()).digest()
-                    self.wfile.write(cipher.encrypt(data))
+                    self.wfile.write(pskcipher.encrypt(data))
                 else:
                     logging.error('client: %s create new key failed!' % user)
                     return
             elif cmd == 1:  # a connect request
-                client_pkey = cipher.decrypt(self.rfile.read(16))
+                client_pkey = pskcipher.decrypt(self.rfile.read(16))
                 if KeyManager.check_key(client_pkey):
                     rint = random.randint(64, 255)
-                    self.wfile.write(cipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     continue
                 user = KeyManager.pkeyuser[client_pkey]
                 cipher = encrypt.Encryptor(KeyManager.pkeykey[client_pkey], self.server.method, servermode=0)
