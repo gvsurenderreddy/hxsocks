@@ -26,6 +26,7 @@ from __future__ import with_statement
 
 __version__ = '0.0.1'
 
+import os
 import sys
 try:
     import gevent
@@ -46,7 +47,7 @@ import struct
 import hashlib
 import logging
 import encrypt
-import os
+import io
 import json
 import urlparse
 from collections import defaultdict, deque
@@ -57,6 +58,7 @@ default_method = 'rc4-md5'
 users = {'user': 'pass'}
 salt = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
 ctx = b'hxsocks'
+mac_len = 16
 
 
 class KeyManager:
@@ -166,23 +168,26 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     return
                 user = KeyManager.pkeyuser[client_pkey]
-                cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, servermode=0)
-                ts = cipher.decrypt(self.rfile.read(cipher.iv_len + 4))
+                cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, salt, ctx, 1)
+                ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
+                ct = self.rfile.read(ctlen)
+                mac = self.rfile.read(mac_len)
+                data = cipher.decrypt(ct, mac)
+                buf = io.BytesIO(data)
+                ts = buf.read(4)
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     return
-                host_len = ord(cipher.decrypt(self.rfile.read(1)))
-                hostport = cipher.decrypt(self.rfile.read(host_len))
+                host_len = ord(buf.read(1))
+                hostport = buf.read(host_len)
                 addr, port = parse_hostport(hostport)
                 try:
                     remote = None
                     logging.info('server %s:%d request %s:%d from %s:%d' % (self.server.server_address[0], self.server.server_address[1],
                                  addr, port, self.client_address[0], self.client_address[1]))
-                    data = b''
+                    data = buf.read()
                     if self.server.reverse:
-                        if select.select([self.connection], [], [], 0.0)[0]:
-                            data = cipher.decrypt(self.connection.recv(self.bufsize))
                         remote = create_connection(self.server.reverse, timeout=1)
                         if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
                             data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], user)).encode('latin1'), 1)
@@ -203,28 +208,33 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 except (IOError, OSError) as e:  # Connection refused
                     logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
                     return
-                self.forward_tcp(self.connection, remote, cipher, timeout=60)
+                self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60)
                 return
             else:
                 logging.warning('unknown cmd, bad encryption key?')
                 break
 
-    def forward_tcp(self, local, remote, cipher, timeout=60):
+    def forward_tcp(self, local, remote, cipher, pskcipher, timeout=60):
         try:
             while 1:
                 ins, _, _ = select.select([local, remote], [], [], timeout)
                 if not ins:
                     break
                 if local in ins:
-                    data = local.recv(self.bufsize)
-                    if not data:
-                        break
-                    remote.sendall(cipher.decrypt(data))
+                    ctlen = self.rfile.read(2)
+                    if not ctlen:
+                        return b''
+                    ctlen = struct.unpack('>H', pskcipher.decrypt(ctlen))[0]
+                    ct = self.rfile.read(ctlen)
+                    mac = self.rfile.read(mac_len)
+                    data = cipher.decrypt(ct, mac)
+                    remote.sendall(data)
                 if remote in ins:
                     data = remote.recv(self.bufsize)
                     if not data:
                         break
-                    local.sendall(cipher.encrypt(data))
+                    ct, mac = cipher.encrypt(data)
+                    local.sendall(pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac)
         except socket.timeout:
             pass
         except (OSError, IOError) as e:

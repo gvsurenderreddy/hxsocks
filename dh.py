@@ -21,8 +21,7 @@ class DH(object):
     def genKey(self, otherKey):
         buf = buffer(otherKey)
         pk = EC.pub_key_from_der(buf)
-        data = self.ec.compute_dh_key(pk)
-        return binascii.hexlify(data).decode()
+        return self.ec.compute_dh_key(pk)
 
 
 if __name__ == '__main__':
