@@ -156,8 +156,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     return
             elif cmd == 1:  # a connect request
                 client_pkey = pskcipher.decrypt(self.rfile.read(16))
+                rint = random.randint(64, 255)
                 if KeyManager.check_key(client_pkey):
-                    rint = random.randint(64, 255)
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     continue
                 user = KeyManager.pkeyuser[client_pkey]
@@ -193,7 +193,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     if not remote:
                         remote = create_connection((addr, port), timeout=10)
                     remote.sendall(data)
-                    self.wfile.write(pskcipher.encrypt(chr(0)))
+                    self.wfile.write(pskcipher.encrypt(chr(0) + chr(rint)) + os.urandom(rint))
                     # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 except (IOError, OSError) as e:  # Connection refused
                     logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
