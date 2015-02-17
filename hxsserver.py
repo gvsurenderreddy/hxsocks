@@ -204,33 +204,34 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 close = 1
 
     def forward_tcp(self, local, remote, cipher, timeout=60):
-        def _io_copy(dest, source, timeout, cipher):
-            try:
-                dest.settimeout(timeout)
-                source.settimeout(timeout)
-                while 1:
-                    data = source.recv(self.bufsize)
+        try:
+            while 1:
+                ins, _, _ = select.select([local, remote], [], [], timeout)
+                if not ins:
+                    break
+                if local in ins:
+                    data = local.recv(self.bufsize)
                     if not data:
                         break
-                    dest.sendall(cipher(data))
-            except socket.timeout:
-                pass
-            except (IOError, OSError) as e:
-                if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
-                    raise
-                if e.args[0] in (errno.EBADF,):
-                    return
-            finally:
-                for sock in (dest, source):
-                    try:
-                        sock.close()
-                    except (IOError, OSError):
-                        pass
-        thread.start_new_thread(_io_copy, (remote.dup(), local.dup(), timeout, cipher.decrypt))
-        _io_copy(local, remote, timeout, cipher.encrypt)
-
-    def finish(self):
-        SocketServer.StreamRequestHandler.finish(self)
+                    remote.sendall(cipher.decrypt(data))
+                if remote in ins:
+                    data = remote.recv(self.bufsize)
+                    if not data:
+                        break
+                    local.sendall(cipher.encrypt(data))
+        except socket.timeout:
+            pass
+        except (OSError, IOError) as e:
+            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
+                raise
+            if e.args[0] in (errno.EBADF,):
+                return
+        finally:
+            for sock in (remote, local):
+                try:
+                    sock.close()
+                except (OSError, IOError):
+                    pass
 
 
 def start_servers(config):
