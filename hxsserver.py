@@ -127,9 +127,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
     bufsize = 8192
 
     def handle(self):
-        close = 0
         pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=0)
-        while not close:
+        while True:
             cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
             cmd = ord(pskcipher.decrypt(self.rfile.read(cmd_len)))
             if cmd == 0:  # client key exchange
@@ -168,7 +167,6 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     return
                 host_len = ord(cipher.decrypt(self.rfile.read(1)))
                 hostport = cipher.decrypt(self.rfile.read(host_len))
-                logging.info('CONNECT %s' % hostport)
                 addr, port = parse_hostport(hostport)
                 try:
                     remote = None
@@ -196,12 +194,13 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     self.wfile.write(pskcipher.encrypt(chr(0) + chr(rint)) + os.urandom(rint))
                     # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 except (IOError, OSError) as e:  # Connection refused
-                    logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
+                    logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
                     return
                 self.forward_tcp(self.connection, remote, cipher, timeout=60)
                 return
             else:
-                close = 1
+                logging.warning('unknown cmd, bad encryption key?')
+                break
 
     def forward_tcp(self, local, remote, cipher, timeout=60):
         try:
