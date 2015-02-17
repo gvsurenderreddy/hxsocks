@@ -130,7 +130,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
         close = 0
         while not close:
             cipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=0)
-            cmd = ord(cipher.decrypt(self.rfile.read(cipher.iv_len() + 1)))
+            cmd = ord(cipher.decrypt(self.rfile.read(cipher.iv_len + 1)))
             if cmd == 0:  # client key exchange
                 ts = cipher.decrypt(self.rfile.read(4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
@@ -161,7 +161,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     continue
                 user = KeyManager.pkeyuser[client_pkey]
                 cipher = encrypt.Encryptor(KeyManager.pkeykey[client_pkey], self.server.method, servermode=0)
-                ts = cipher.decrypt(self.rfile.read(cipher.iv_len() + 4))
+                ts = cipher.decrypt(self.rfile.read(cipher.iv_len + 4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
                     return
