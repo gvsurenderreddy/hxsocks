@@ -37,7 +37,6 @@ except ImportError:
 
 import errno
 import socket
-import thread
 import threading
 import time
 import random
@@ -255,9 +254,9 @@ def main():
     print(hello)
     print('by v3aqb')
     servers = ['hxp://0.0.0.0:90']
-    if os.path.isfile('config.json'):
+    if os.path.exists(os.path.join(os.path.dirname(__file__), 'config.json')):
         global users
-        d = json.loads(open('config.json').read())
+        d = json.loads(open(os.path.join(os.path.dirname(__file__), 'config.json')).read())
         users = d['users']
         servers = d['servers']
     for s in servers:
