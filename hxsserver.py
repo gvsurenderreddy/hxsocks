@@ -131,7 +131,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
     bufsize = 8192
 
     def handle(self):
-        pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=0)
+        pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
         while True:
             bad_req = 0
             rint = random.randint(64, 255)
