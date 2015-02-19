@@ -53,6 +53,7 @@ import urlparse
 from collections import defaultdict, deque
 from util import create_connection, parse_hostport
 from dh import DH
+from encrypt import compare_digest
 
 default_method = 'rc4-md5'
 users = {'user': 'pass'}
@@ -146,7 +147,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
                 client_auth = pskcipher.decrypt(self.rfile.read(32))
                 for user, passwd in users.items():
-                    if hashlib.sha256(client_pkey + user.encode() + passwd.encode()).digest() == client_auth:
+                    if compare_digest(hashlib.sha256(client_pkey + user.encode() + passwd.encode()).digest(), client_auth):
                         client = user
                         break
                 else:
@@ -181,7 +182,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     return
                 client_auth = buf.read(32)
                 passwd = users[user]
-                if hashlib.sha256(user.encode() + passwd.encode()).digest() != client_auth:
+                if not compare_digest(hashlib.sha256(user.encode() + passwd.encode()).digest(), client_auth):
                     return
                 host_len = ord(buf.read(1))
                 hostport = buf.read(host_len)
