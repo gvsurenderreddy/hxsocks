@@ -179,6 +179,10 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     logging.error('bad timestamp, possible replay attrack')
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     return
+                client_auth = buf.read(32)
+                passwd = users[user]
+                if hashlib.sha256(user.encode() + passwd.encode()).digest() != client_auth:
+                    return
                 host_len = ord(buf.read(1))
                 hostport = buf.read(host_len)
                 addr, port = parse_hostport(hostport)
