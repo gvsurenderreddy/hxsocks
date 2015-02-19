@@ -145,6 +145,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     bad_req |= 1
                 pklen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                 client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
+                if hashlib.md5(client_pkey).digest() in KeyManager.pkeyuser:
+                    # This public key has already been registered
+                    bad_req |= 1
                 client_auth = pskcipher.decrypt(self.rfile.read(32))
                 for user, passwd in users.items():
                     if compare_digest(hashlib.sha256(client_pkey + user.encode() + passwd.encode()).digest(), client_auth):
