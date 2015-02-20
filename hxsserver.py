@@ -129,7 +129,7 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 class HXSocksHandler(SocketServer.StreamRequestHandler):
     timeout = 10
-    bufsize = 8192
+    bufsize = 32768
 
     def handle(self):
         pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
