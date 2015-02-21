@@ -169,8 +169,11 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             elif cmd == 1:  # a connect request
                 client_pkey = pskcipher.decrypt(self.rfile.read(16))
                 if KeyManager.check_key(client_pkey):
+                    ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
+                    self.rfile.read(ctlen)
+                    self.rfile.read(mac_len)
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
-                    return
+                    continue
                 user = KeyManager.pkeyuser[client_pkey]
                 cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, salt, ctx, 1)
                 ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
@@ -182,11 +185,12 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
-                    return
+                    continue
                 client_auth = buf.read(32)
                 passwd = users[user]
                 if not compare_digest(hashlib.sha256(user.encode() + passwd.encode()).digest(), client_auth):
-                    return
+                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                    continue
                 host_len = ord(buf.read(1))
                 hostport = buf.read(host_len)
                 addr, port = parse_hostport(hostport)
@@ -215,7 +219,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 except (IOError, OSError) as e:  # Connection refused
                     logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
-                    return
+                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                    continue
                 self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60)
                 return
             else:
