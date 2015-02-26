@@ -52,7 +52,7 @@ import json
 import urlparse
 from collections import defaultdict, deque
 from util import create_connection, parse_hostport
-from dh import DH
+from ecc import ECC
 from encrypt import compare_digest
 
 default_method = 'rc4-md5'
@@ -69,20 +69,20 @@ class KeyManager:
     pkeytime = {}
 
     @classmethod
-    def create_key(cls, user, client_pkey):
+    def create_key(cls, user, client_pkey, klen):
         valid = 1
         if not valid:
             return 0, 0
         if len(cls.userpkeys[user]) > 3:
             cls.del_key(cls.userpkeys[user][0])
-        dh = DH()
-        shared_secret = dh.genKey(client_pkey)
+        dh = ECC(klen)
+        shared_secret = dh.get_dh_key(client_pkey)
         client_pkey = hashlib.md5(client_pkey).digest()
         cls.userpkeys[user].append(client_pkey)
         cls.pkeyuser[client_pkey] = user
         cls.pkeykey[client_pkey] = shared_secret
         cls.pkeytime[client_pkey] = time.time()
-        return dh.getPubKey(), users[user]
+        return dh.get_pub_key(), users[user]
 
     @classmethod
     def check_key(cls, pubk):
@@ -118,14 +118,6 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         server_address = (p.hostname, p.port)
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate=bind_and_activate)
 
-    def server_activate(self):
-        self.socket.listen(self.request_queue_size)
-
-    def get_request(self):
-        connection = self.socket.accept()
-        connection[0].settimeout(10)
-        return connection
-
 
 class HXSocksHandler(SocketServer.StreamRequestHandler):
     timeout = 10
@@ -154,9 +146,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         client = user
                         break
                 else:
-                    logging.error('user not found, close socket')
+                    logging.error('user not found.')
                     bad_req |= 1
-                pkey, passwd = KeyManager.create_key(client, client_pkey)
+                pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
                 if not bad_req and pkey:
                     logging.info('client: %s is asking for a new key' % user)
                     data = chr(0) + struct.pack('>H', len(pkey)) + pkey + hashlib.sha256(client_pkey + pkey + user.encode() + passwd.encode()).digest()
