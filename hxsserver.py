@@ -284,7 +284,7 @@ def main():
         server_cert = ECC(from_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
     except:
         logging.warning('server cert not found, creating...')
-        server_cert = ECC(key_len=16)
+        server_cert = ECC(key_len=32)
         server_cert.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
 
     servers = ['hxp://0.0.0.0:90']
