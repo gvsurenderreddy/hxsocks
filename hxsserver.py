@@ -60,6 +60,7 @@ users = {'user': 'pass'}
 salt = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
 ctx = b'hxsocks'
 mac_len = 16
+server_cert = None
 
 
 class KeyManager:
@@ -135,7 +136,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
                     bad_req |= 1
-                pklen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
+                pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
                 client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
                 if hashlib.md5(client_pkey).digest() in KeyManager.pkeyuser:
                     # This public key has already been registered
@@ -151,7 +152,10 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
                 if not bad_req and pkey:
                     logging.info('client: %s is asking for a new key' % user)
-                    data = chr(0) + struct.pack('>H', len(pkey)) + pkey + hashlib.sha256(client_pkey + pkey + user.encode() + passwd.encode()).digest()
+                    h = hashlib.sha256(client_pkey + pkey + user.encode() + passwd.encode()).digest()
+                    scert = server_cert.get_pub_key()
+                    r, s = server_cert.sign(h)
+                    data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(r)) + r + s
                     self.wfile.write(pskcipher.encrypt(data))
                     continue
                 else:
@@ -275,10 +279,18 @@ def main():
         hello += ' with gevent %s' % gevent.__version__
     print(hello)
     print('by v3aqb')
+    global server_cert
+    try:
+        server_cert = ECC(from_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
+    except:
+        logging.warning('server cert not found, creating...')
+        server_cert = ECC(key_len=16)
+        server_cert.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
+
     servers = ['hxp://0.0.0.0:90']
-    if os.path.exists(os.path.join(os.path.dirname(__file__), 'config.json')):
+    if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')):
         global users
-        d = json.loads(open(os.path.join(os.path.dirname(__file__), 'config.json')).read())
+        d = json.loads(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')).read())
         users = d['users']
         servers = d['servers']
     for s in servers:
