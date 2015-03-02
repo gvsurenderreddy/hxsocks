@@ -236,6 +236,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     ctlen = struct.unpack('>H', pskcipher.decrypt(ctlen))[0]
                     ct = self.rfile.read(ctlen)
                     mac = self.rfile.read(mac_len)
+                    if ctlen < 512:
+                        self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1))))
                     data = cipher.decrypt(ct, mac)
                     remote.sendall(data)
                 if remote in ins:
@@ -243,7 +245,11 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     if not data:
                         break
                     ct, mac = cipher.encrypt(data)
-                    local.sendall(pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac)
+                    data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
+                    if len(ct) < 512:
+                        rint = random.randint(64, 255)
+                        data += pskcipher.encrypt(chr(rint)) + os.urandom(rint)
+                    local.sendall(data)
         except socket.timeout:
             pass
         except (OSError, IOError) as e:
