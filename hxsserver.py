@@ -215,7 +215,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 except (IOError, OSError) as e:  # Connection refused
                     logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
-                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                    self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
                     continue
                 self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60)
                 return
