@@ -71,8 +71,7 @@ class KeyManager:
 
     @classmethod
     def create_key(cls, user, client_pkey, klen):
-        valid = 1
-        if not valid:
+        if cls.notvalid(user, client_pkey):
             return 0, 0
         if len(cls.userpkeys[user]) > 3:
             cls.del_key(cls.userpkeys[user][0])
@@ -84,6 +83,10 @@ class KeyManager:
         cls.pkeykey[client_pkey] = shared_secret
         cls.pkeytime[client_pkey] = time.time()
         return dh.get_pub_key(), users[user]
+
+    @classmethod
+    def notvalid(cls, user, client_pkey):
+        return hashlib.md5(client_pkey).digest() in cls.pkeyuser
 
     @classmethod
     def check_key(cls, pubk):
@@ -138,12 +141,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     bad_req |= 1
                 pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
                 client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
-                if hashlib.md5(client_pkey).digest() in KeyManager.pkeyuser:
-                    # This public key has already been registered
-                    bad_req |= 1
                 client_auth = pskcipher.decrypt(self.rfile.read(32))
                 for user, passwd in users.items():
-                    if compare_digest(hashlib.sha256(client_pkey + user.encode() + passwd.encode()).digest(), client_auth):
+                    if compare_digest(hashlib.sha256(ts + client_pkey + user.encode() + passwd.encode()).digest(), client_auth):
                         client = user
                         break
                 else:
@@ -182,11 +182,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     logging.error('bad timestamp, possible replay attrack')
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     continue
-                client_auth = buf.read(32)
                 passwd = users[user]
-                if not compare_digest(hashlib.sha256(user.encode() + passwd.encode()).digest(), client_auth):
-                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
-                    continue
                 host_len = ord(buf.read(1))
                 hostport = buf.read(host_len)
                 addr, port = parse_hostport(hostport)
