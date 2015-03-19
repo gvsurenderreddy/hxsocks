@@ -134,7 +134,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             rint = random.randint(64, 255)
             cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
             cmd = ord(pskcipher.decrypt(self.rfile.read(cmd_len)))
-            if cmd == 0:  # client key exchange
+            if cmd == 10:  # client key exchange
                 ts = pskcipher.decrypt(self.rfile.read(4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
@@ -162,7 +162,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     logging.error('client: %s create new key failed!' % user)
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     continue
-            elif cmd == 1:  # a connect request
+            elif cmd == 11:  # a connect request
                 client_pkey = pskcipher.decrypt(self.rfile.read(16))
                 if KeyManager.check_key(client_pkey):
                     ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
@@ -215,6 +215,40 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     continue
                 self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60)
                 return
+            elif cmd in (1, 3, 4):
+                # A shadowsocks request
+                if cmd == 1:
+                    addr = socket.inet_ntoa(pskcipher.decrypt(self.rfile.read(4)))
+                elif cmd == 3:
+                    addr = pskcipher.decrypt(self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1)))))
+                elif cmd == 4:
+                    addr = socket.inet_ntop(socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16)))
+                port = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
+                try:
+                    remote = None
+                    logging.info('server %s:%d SS request %s:%d from %s:%d' % (self.server.server_address[0], self.server.server_address[1],
+                                 addr, port, self.client_address[0], self.client_address[1]))
+                    data = pskcipher.decrypt(self.connection.recv(self.bufsize))
+                    if self.server.reverse:
+                        remote = create_connection(self.server.reverse, timeout=1)
+                        if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
+                            data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], user)).encode('latin1'), 1)
+                        else:
+                            a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], user)
+                            remote.sendall(a.encode('latin1'))
+                            remoterfile = remote.makefile('rb', 0)
+                            d = remoterfile.readline()
+                            while d not in (b'\r\n', b'\n', b'\r'):
+                                if not d:
+                                    raise IOError(0, 'remote closed')
+                                d = remoterfile.readline()
+                    if not remote:
+                        remote = create_connection((addr, port), timeout=10)
+                    remote.sendall(data)
+                    return self.ssforward_tcp(self.connection, remote, pskcipher, timeout=60)
+                except (IOError, OSError) as e:  # Connection refused
+                    logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
+                    return
             else:
                 logging.warning('unknown cmd, bad encryption key?')
                 break
@@ -246,6 +280,36 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         rint = random.randint(64, 255)
                         data += pskcipher.encrypt(chr(rint)) + os.urandom(rint)
                     local.sendall(data)
+        except socket.timeout:
+            pass
+        except (OSError, IOError) as e:
+            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
+                raise
+            if e.args[0] in (errno.EBADF,):
+                return
+        finally:
+            for sock in (remote, local):
+                try:
+                    sock.close()
+                except (OSError, IOError):
+                    pass
+
+    def ssforward_tcp(self, local, remote, cipher, timeout=60):
+        try:
+            while 1:
+                ins, _, _ = select.select([local, remote], [], [], timeout)
+                if not ins:
+                    break
+                if local in ins:
+                    data = local.recv(self.bufsize)
+                    if not data:
+                        break
+                    remote.sendall(cipher.decrypt(data))
+                if remote in ins:
+                    data = remote.recv(self.bufsize)
+                    if not data:
+                        break
+                    local.sendall(cipher.encrypt(data))
         except socket.timeout:
             pass
         except (OSError, IOError) as e:
