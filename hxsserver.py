@@ -51,7 +51,7 @@ import io
 import json
 import urlparse
 from collections import defaultdict, deque
-from util import create_connection, parse_hostport
+from util import create_connection, parse_hostport, get_ip_address
 from ecc import ECC
 from encrypt import compare_digest
 
@@ -186,6 +186,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 host_len = ord(buf.read(1))
                 hostport = buf.read(host_len)
                 addr, port = parse_hostport(hostport)
+                if self._request_is_loopback((addr, port)):
+                    logging.info('server %s:%d localhost access denied' % self.server.server_address)
+                    return self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
                 try:
                     remote = None
                     logging.info('server %s:%d request %s:%d from %s:%d' % (self.server.server_address[0], self.server.server_address[1],
@@ -224,6 +227,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 elif cmd == 4:
                     addr = socket.inet_ntop(socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16)))
                 port = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
+                if self._request_is_loopback((addr, port)):
+                    logging.info('server %s:%d localhost access denied' % self.server.server_address)
+                    return
                 try:
                     remote = None
                     logging.info('server %s:%d SS request %s:%d from %s:%d' % (self.server.server_address[0], self.server.server_address[1],
@@ -323,6 +329,12 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     sock.close()
                 except (OSError, IOError):
                     pass
+
+    def _request_is_loopback(self, req):
+        try:
+            return get_ip_address(req[0]).is_loopback
+        except Exception:
+            pass
 
 
 def start_servers(config):
