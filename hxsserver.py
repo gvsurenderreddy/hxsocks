@@ -188,12 +188,12 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 hostport = buf.read(host_len)
                 addr, port = parse_hostport(hostport)
                 if self._request_is_loopback((addr, port)):
-                    logging.info('server %s:%d localhost access denied' % self.server.server_address)
+                    logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user)
                     return self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
                 try:
                     remote = None
-                    logging.info('server %s:%d request %s:%d from %s:%d' % (self.server.server_address[0], self.server.server_address[1],
-                                 addr, port, self.client_address[0], self.client_address[1]))
+                    logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
+                                 addr, port, self.client_address[0], self.client_address[1], user))
                     data = buf.read()
                     if self.server.reverse:
                         remote = create_connection(self.server.reverse, timeout=1)
@@ -232,11 +232,11 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     addr = socket.inet_ntop(socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16)))
                 port = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                 if self._request_is_loopback((addr, port)):
-                    logging.info('server %s:%d localhost access denied' % self.server.server_address)
+                    logging.info('server %d access localhost:%d denied. from %s:%d' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1])
                     return
                 try:
                     remote = None
-                    logging.info('server %s:%d SS request %s:%d from %s:%d' % (self.server.server_address[0], self.server.server_address[1],
+                    logging.info('server %d SS request %s:%d from %s:%d' % (self.server.server_address[1],
                                  addr, port, self.client_address[0], self.client_address[1]))
                     data = pskcipher.decrypt(self.connection.recv(self.bufsize))
                     if self.server.reverse:
