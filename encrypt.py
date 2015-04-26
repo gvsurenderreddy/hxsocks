@@ -210,6 +210,19 @@ class Encryptor(object):
             return self.decipher.update(buf)
 
 
+@lru_cache(128)
+def hkdf(key, salt, ctx, key_len):
+    '''
+    consider key come from a key exchange protocol.
+    '''
+    key = hmac.new(salt, key, hashlib.sha256).digest()
+    sek = hmac.new(key, ctx + b'server_encrypt_key', hashlib.sha256).digest()[:key_len]
+    sak = hmac.new(key, ctx + b'server_authenticate_key', hashlib.sha256).digest()
+    cek = hmac.new(key, ctx + b'client_encrypt_key', hashlib.sha256).digest()[:key_len]
+    cak = hmac.new(key, ctx + b'client_authenticate_key', hashlib.sha256).digest()
+    return sek, sak, cek, cak
+
+
 class AEncryptor(object):
     '''
     Provide Authenticated Encryption
@@ -221,26 +234,15 @@ class AEncryptor(object):
         self.servermode = servermode
         self.key_len, self.iv_len = get_cipher_len(method)
         if servermode:
-            self.encrypt_key, self.auth_key, self.decrypt_key, self.de_auth_key = self.hkdf(key, salt, ctx)
+            self.encrypt_key, self.auth_key, self.decrypt_key, self.de_auth_key = hkdf(key, salt, ctx, self.key_len)
         else:
-            self.decrypt_key, self.de_auth_key, self.encrypt_key, self.auth_key = self.hkdf(key, salt, ctx)
+            self.decrypt_key, self.de_auth_key, self.encrypt_key, self.auth_key = hkdf(key, salt, ctx, self.key_len)
         self.iv_sent = False
         self.cipher_iv = random_string(self.iv_len)
         self.cipher = get_cipher(self.encrypt_key, method, 1, self.cipher_iv)
         self.decipher = None
         self.enmac = hmac.new(self.auth_key, digestmod=hfunc)
         self.demac = hmac.new(self.de_auth_key, digestmod=hfunc)
-
-    def hkdf(self, key, salt, ctx):
-        '''
-        consider key come from a key exchange protocol.
-        '''
-        key = hmac.new(salt, key, hashlib.sha256).digest()
-        sek = hmac.new(key, ctx + b'server_encrypt_key', hashlib.sha256).digest()[:self.key_len]
-        sak = hmac.new(key, ctx + b'server_authenticate_key', hashlib.sha256).digest()
-        cek = hmac.new(key, ctx + b'client_encrypt_key', hashlib.sha256).digest()[:self.key_len]
-        cak = hmac.new(key, ctx + b'client_authenticate_key', hashlib.sha256).digest()
-        return sek, sak, cek, cak
 
     def encrypt(self, buf):
         if len(buf) == 0:
