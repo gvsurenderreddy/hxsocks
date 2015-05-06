@@ -188,7 +188,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 hostport = buf.read(host_len)
                 addr, port = parse_hostport(hostport)
                 if self._request_is_loopback((addr, port)):
-                    logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user)
+                    logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
                     return self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
                 try:
                     remote = None
@@ -232,7 +232,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     addr = socket.inet_ntop(socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16)))
                 port = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                 if self._request_is_loopback((addr, port)):
-                    logging.info('server %d access localhost:%d denied. from %s:%d' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1])
+                    logging.info('server %d access localhost:%d denied. from %s:%d' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1]))
                     return
                 try:
                     remote = None
