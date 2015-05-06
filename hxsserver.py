@@ -125,7 +125,7 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
 class HXSocksHandler(SocketServer.StreamRequestHandler):
-    timeout = 10
+    timeout = 60
     bufsize = 32768
 
     def handle(self):
