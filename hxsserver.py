@@ -113,7 +113,7 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         p = urlparse.urlparse(serverinfo)
         self.PSK = urlparse.parse_qs(p.query).get('PSK', [''])[0]
         self.method = urlparse.parse_qs(p.query).get('method', [''])[0] or default_method
-        self.ss = bool(self.PSK) and urlparse.parse_qs(p.query).get('ss', ['1'])[0] == 1
+        self.ss = bool(self.PSK) and urlparse.parse_qs(p.query).get('ss', ['1'])[0] == '1'
         reverse = urlparse.parse_qs(p.query).get('reverse', [''])[0]
         self.reverse = parse_hostport(reverse) if reverse else None
         addrs = socket.getaddrinfo(p.hostname, p.port)
