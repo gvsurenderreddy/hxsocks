@@ -45,6 +45,7 @@ import select
 import SocketServer
 import struct
 import hashlib
+import hmac
 import logging
 import encrypt
 import io
@@ -134,7 +135,11 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             bad_req = 0
             rint = random.randint(64, 255)
             cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
-            cmd = ord(pskcipher.decrypt(self.rfile.read(cmd_len)))
+            try:
+                data = self.rfile.read(cmd_len)
+            except:
+                break
+            cmd = ord(pskcipher.decrypt(data))
             if cmd == 10:  # client key exchange
                 ts = pskcipher.decrypt(self.rfile.read(4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
@@ -144,7 +149,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
                 client_auth = pskcipher.decrypt(self.rfile.read(32))
                 for user, passwd in users.items():
-                    if compare_digest(hashlib.sha256(ts + client_pkey + user.encode() + passwd.encode()).digest(), client_auth):
+                    h = hmac.new(passwd.encode(), ts + client_pkey + user.encode(), hashlib.sha256).digest()
+                    if compare_digest(h, client_auth):
                         client = user
                         break
                 else:
@@ -153,7 +159,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
                 if not bad_req and pkey:
                     logging.info('client: %s is asking for a new key' % user)
-                    h = hashlib.sha256(client_pkey + pkey + user.encode() + passwd.encode()).digest()
+                    h = hmac.new(passwd.encode(), client_pkey + pkey + user.encode(), hashlib.sha256).digest()
                     scert = server_cert.get_pub_key()
                     r, s = server_cert.sign(h)
                     data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(r)) + r + s
