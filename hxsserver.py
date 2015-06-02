@@ -139,6 +139,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 data = self.rfile.read(cmd_len)
             except:
                 break
+            self.connection.settimeout(self.timeout)
             cmd = ord(pskcipher.decrypt(data))
             if cmd == 10:  # client key exchange
                 ts = pskcipher.decrypt(self.rfile.read(4))
@@ -223,8 +224,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
                     self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
                     continue
-                self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60)
-                return
+                if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
+                    return
             elif cmd in (1, 3, 4):
                 # A shadowsocks request
                 if not self.server.ss:
@@ -270,32 +271,50 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 break
 
     def forward_tcp(self, local, remote, cipher, pskcipher, timeout=60):
+        readable = 1
+        writeable = 1
+        fds = [local, remote]
         try:
-            while 1:
-                ins, _, _ = select.select([local, remote], [], [], timeout)
+            while fds:
+                ins, _, _ = select.select(fds, [], [], timeout)
                 if not ins:
                     break
                 if local in ins:
                     ctlen = self.rfile.read(2)
                     if not ctlen:
-                        return b''
+                        # client is no longer sending anything
+                        fds.remove(local)
+                        break
                     ctlen = struct.unpack('>H', pskcipher.decrypt(ctlen))[0]
-                    ct = self.rfile.read(ctlen)
-                    mac = self.rfile.read(mac_len)
-                    if ctlen < 512:
+                    if ctlen:
+                        ct = self.rfile.read(ctlen)
+                        mac = self.rfile.read(mac_len)
+                        if ctlen < 512:
+                            self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1))))
+                        data = cipher.decrypt(ct, mac)
+                        remote.sendall(data)
+                    else:
+                        # client is no longer sending anything, gracefully
+                        remote.shutdown(socket.SHUT_WR)
                         self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1))))
-                    data = cipher.decrypt(ct, mac)
-                    remote.sendall(data)
+                        fds.remove(local)
+                        readable = 0
                 if remote in ins:
                     data = remote.recv(self.bufsize)
-                    if not data:
-                        break
-                    ct, mac = cipher.encrypt(data)
-                    data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
-                    if len(ct) < 512:
+                    if data:
+                        ct, mac = cipher.encrypt(data)
+                        data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
+                        if len(ct) < 512:
+                            rint = random.randint(64, 255)
+                            data += pskcipher.encrypt(chr(rint)) + os.urandom(rint)
+                        local.sendall(data)
+                    else:
+                        # remote no longer sending anything.
                         rint = random.randint(64, 255)
-                        data += pskcipher.encrypt(chr(rint)) + os.urandom(rint)
-                    local.sendall(data)
+                        data = pskcipher.encrypt(b'\x00\x00' + chr(rint)) + os.urandom(rint)
+                        local.sendall(data)
+                        writeable = 0
+                        fds.remove(remote)
         except socket.timeout:
             pass
         except (OSError, IOError) as e:
@@ -304,11 +323,12 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             if e.args[0] in (errno.EBADF,):
                 return
         finally:
-            for sock in (remote, local):
-                try:
-                    sock.close()
-                except (OSError, IOError):
-                    pass
+            try:
+                remote.close()
+            except (OSError, IOError):
+                pass
+        self.connection.settimeout(600)
+        return readable + writeable
 
     def ssforward_tcp(self, local, remote, cipher, timeout=60):
         try:
