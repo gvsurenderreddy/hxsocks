@@ -215,6 +215,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                                 if not d:
                                     raise IOError(0, 'remote closed')
                                 d = remoterfile.readline()
+                        remote.settimeout(10)
                     if not remote:
                         remote = create_connection((addr, port), timeout=10)
                     remote.sendall(data)
@@ -259,6 +260,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                                 if not d:
                                     raise IOError(0, 'remote closed')
                                 d = remoterfile.readline()
+                        remote.settimeout(10)
                     if not remote:
                         remote = create_connection((addr, port), timeout=10)
                     remote.sendall(data)
