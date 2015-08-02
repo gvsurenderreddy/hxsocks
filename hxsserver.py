@@ -271,6 +271,10 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             else:
                 logging.warning('unknown cmd, bad encryption key?')
                 break
+        try:
+            self.connection.close()
+        except:
+            pass
 
     def forward_tcp(self, local, remote, cipher, pskcipher, timeout=60):
         readable = 1
