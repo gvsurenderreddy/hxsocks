@@ -53,8 +53,7 @@ import json
 import urlparse
 from collections import defaultdict, deque
 from util import create_connection, parse_hostport, get_ip_address
-from ecc import ECC
-from encrypt import compare_digest
+from encrypt import compare_digest, ECC
 
 default_method = 'rc4-md5'
 users = {'user': 'pass'}
