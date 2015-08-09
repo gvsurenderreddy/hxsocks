@@ -55,12 +55,13 @@ from collections import defaultdict, deque
 from util import create_connection, parse_hostport, get_ip_address
 from encrypt import compare_digest, ECC
 
-default_method = 'rc4-md5'
-users = {'user': 'pass'}
-salt = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
-ctx = b'hxsocks'
-mac_len = 16
-server_cert = None
+DEFAULT_METHOD = 'rc4-md5'
+SALT = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
+CTX = b'hxsocks'
+MAC_LEN = 16
+
+USER_PASS = {'user': 'pass'}
+SERVER_CERT = None
 
 
 class KeyManager:
@@ -82,7 +83,7 @@ class KeyManager:
         cls.pkeyuser[client_pkey] = user
         cls.pkeykey[client_pkey] = shared_secret
         cls.pkeytime[client_pkey] = time.time()
-        return dh.get_pub_key(), users[user]
+        return dh.get_pub_key(), USER_PASS[user]
 
     @classmethod
     def notvalid(cls, user, client_pkey):
@@ -112,7 +113,7 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.serverinfo = serverinfo
         p = urlparse.urlparse(serverinfo)
         self.PSK = urlparse.parse_qs(p.query).get('PSK', [''])[0]
-        self.method = urlparse.parse_qs(p.query).get('method', [''])[0] or default_method
+        self.method = urlparse.parse_qs(p.query).get('method', [''])[0] or DEFAULT_METHOD
         self.ss = bool(self.PSK) and urlparse.parse_qs(p.query).get('ss', ['1'])[0] == '1'
         reverse = urlparse.parse_qs(p.query).get('reverse', [''])[0]
         self.reverse = parse_hostport(reverse) if reverse else None
@@ -148,7 +149,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
                 client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
                 client_auth = pskcipher.decrypt(self.rfile.read(32))
-                for user, passwd in users.items():
+                for user, passwd in USER_PASS.items():
                     h = hmac.new(passwd.encode(), ts + client_pkey + user.encode(), hashlib.sha256).digest()
                     if compare_digest(h, client_auth):
                         client = user
@@ -160,8 +161,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 if not bad_req and pkey:
                     logging.info('client: %s is asking for a new key' % user)
                     h = hmac.new(passwd.encode(), client_pkey + pkey + user.encode(), hashlib.sha256).digest()
-                    scert = server_cert.get_pub_key()
-                    r, s = server_cert.sign(h)
+                    scert = SERVER_CERT.get_pub_key()
+                    r, s = SERVER_CERT.sign(h)
                     data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(r)) + r + s
                     self.wfile.write(pskcipher.encrypt(data))
                     continue
@@ -174,14 +175,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 if KeyManager.check_key(client_pkey):
                     ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                     self.rfile.read(ctlen)
-                    self.rfile.read(mac_len)
+                    self.rfile.read(MAC_LEN)
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     continue
                 user = KeyManager.pkeyuser[client_pkey]
-                cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, salt, ctx, 1)
+                cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, SALT, CTX, 1)
                 ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                 ct = self.rfile.read(ctlen)
-                mac = self.rfile.read(mac_len)
+                mac = self.rfile.read(MAC_LEN)
                 data = cipher.decrypt(ct, mac)
                 buf = io.BytesIO(data)
                 ts = buf.read(4)
@@ -189,7 +190,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     logging.error('bad timestamp, possible replay attrack')
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     continue
-                passwd = users[user]
+                passwd = USER_PASS[user]
                 host_len = ord(buf.read(1))
                 hostport = buf.read(host_len)
                 addr, port = parse_hostport(hostport)
@@ -293,7 +294,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     ctlen = struct.unpack('>H', pskcipher.decrypt(ctlen))[0]
                     if ctlen:
                         ct = self.rfile.read(ctlen)
-                        mac = self.rfile.read(mac_len)
+                        mac = self.rfile.read(MAC_LEN)
                         if ctlen < 512:
                             self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1))))
                         data = cipher.decrypt(ct, mac)
@@ -392,19 +393,19 @@ def main():
         hello += ' with gevent %s' % gevent.__version__
     print(hello)
     print('by v3aqb')
-    global server_cert
+    global SERVER_CERT
     try:
-        server_cert = ECC(from_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
+        SERVER_CERT = ECC(from_file=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
     except:
         logging.warning('server cert not found, creating...')
-        server_cert = ECC(key_len=32)
-        server_cert.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
+        SERVER_CERT = ECC(key_len=32)
+        SERVER_CERT.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
 
     servers = ['hxp://0.0.0.0:90']
     if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')):
-        global users
+        global USER_PASS
         d = json.loads(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')).read())
-        users = d['users']
+        USER_PASS = d['users']
         servers = d['servers']
     for s in servers:
         logging.info('starting server: %s' % s)
