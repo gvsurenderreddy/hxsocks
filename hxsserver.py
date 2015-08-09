@@ -145,7 +145,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 ts = pskcipher.decrypt(self.rfile.read(4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                     logging.error('bad timestamp, possible replay attrack')
-                    bad_req |= 1
+                    bad_req = 1
                 pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
                 client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
                 client_auth = pskcipher.decrypt(self.rfile.read(32))
@@ -156,7 +156,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         break
                 else:
                     logging.error('user not found.')
-                    bad_req |= 1
+                    bad_req = 1
                 pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
                 if not bad_req and pkey:
                     logging.info('client: %s is asking for a new key' % user)
