@@ -36,6 +36,7 @@
 # You should have received a copy of the GNU General Public License along
 # with this program; if not, see <http://www.gnu.org/licenses>.
 
+import sys
 import os
 import hashlib
 import hmac
@@ -45,12 +46,9 @@ from ctypes_libsodium import Salsa20Crypto
 try:
     from M2Crypto.EVP import Cipher
     from M2Crypto import EC
-    import M2Crypto.Rand
-    random_string = M2Crypto.Rand.rand_bytes
 except ImportError:
-    random_string = os.urandom
-    from streamcipher import StreamCipher as Cipher
-    EC = None
+    sys.stderr.write('python-M2Crypto is requered!')
+    sys.stderr.flush()
 try:
     from hmac import compare_digest
 except ImportError:
@@ -69,6 +67,10 @@ except ImportError:
             for x, y in zip(a, b):
                 result |= x ^ y
             return result == 0
+
+
+def random_string(size):
+    return b'\x16\x03\x03\x00' + os.urandom(size-4)
 
 
 @lru_cache(128)
@@ -217,7 +219,7 @@ class AEncryptor(object):
         self.enmac = hmac.new(self.auth_key, digestmod=hfunc)
         self.demac = hmac.new(self.de_auth_key, digestmod=hfunc)
 
-    def encrypt(self, buf):
+    def encrypt(self, buf, ad=None):
         if len(buf) == 0:
             raise ValueError('buf should not be empty')
         if self.iv_sent:
@@ -225,12 +227,16 @@ class AEncryptor(object):
         else:
             self.iv_sent = True
             ct = self.cipher_iv + self.cipher.update(buf)
+        if ad:
+            self.enmac.update(ad)
         self.enmac.update(ct)
         return ct, self.enmac.digest()
 
-    def decrypt(self, buf, mac):
+    def decrypt(self, buf, mac, ad=None):
         if len(buf) == 0:
             raise ValueError('buf should not be empty')
+        if ad:
+            self.demac.update(ad)
         self.demac.update(buf)
         rmac = self.demac.digest()
         if self.decipher is None:
