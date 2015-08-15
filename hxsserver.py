@@ -144,30 +144,35 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             if cmd == 10:  # client key exchange
                 ts = pskcipher.decrypt(self.rfile.read(4))
                 if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
-                    logging.error('bad timestamp, possible replay attrack')
+                    logging.error('bad timestamp. client_ip: %s' % self.client_address[0])
                     bad_req = 1
                 pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
                 client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
                 client_auth = pskcipher.decrypt(self.rfile.read(32))
+                if bad_req:
+                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                    continue
+                client = None
                 for user, passwd in USER_PASS.items():
                     h = hmac.new(passwd.encode(), ts + client_pkey + user.encode(), hashlib.sha256).digest()
                     if compare_digest(h, client_auth):
                         client = user
                         break
                 else:
-                    logging.error('user not found.')
-                    bad_req = 1
+                    logging.error('user not found. client_ip: %s' % self.client_address[0])
+                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                    continue
                 pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
-                if not bad_req and pkey:
-                    logging.info('client: %s is asking for a new key' % user)
-                    h = hmac.new(passwd.encode(), client_pkey + pkey + user.encode(), hashlib.sha256).digest()
+                if pkey:
+                    logging.info('new key exchange. client: %s, ip: %s' % (client, self.client_address[0]))
+                    h = hmac.new(passwd.encode(), client_pkey + pkey + client.encode(), hashlib.sha256).digest()
                     scert = SERVER_CERT.get_pub_key()
                     r, s = SERVER_CERT.sign(h)
                     data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(r)) + r + s
                     self.wfile.write(pskcipher.encrypt(data))
                     continue
                 else:
-                    logging.error('client: %s create new key failed!' % user)
+                    logging.error('Private_key already registered. client: %s, ip: %s' % (client, self.client_address[0]))
                     self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                     continue
             elif cmd == 11:  # a connect request
