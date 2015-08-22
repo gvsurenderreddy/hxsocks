@@ -276,7 +276,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
                         return
                 else:
-                    logging.warning('unknown cmd, bad encryption key?')
+                    logging.warning('unknown cmd %d, bad encryption key?' % cmd)
                     break
         except Exception as e:
             logging.error(repr(e))
