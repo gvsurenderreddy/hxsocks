@@ -51,6 +51,7 @@ import encrypt
 import io
 import json
 import urlparse
+import traceback
 from collections import defaultdict, deque
 from util import create_connection, parse_hostport, get_ip_address
 from encrypt import compare_digest, ECC
@@ -130,152 +131,156 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
     bufsize = 32768
 
     def handle(self):
-        pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
-        while True:
-            bad_req = 0
-            rint = random.randint(64, 255)
-            cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
-            try:
-                data = self.rfile.read(cmd_len)
-            except:
-                break
-            self.connection.settimeout(self.timeout)
-            cmd = ord(pskcipher.decrypt(data))
-            if cmd == 10:  # client key exchange
-                ts = pskcipher.decrypt(self.rfile.read(4))
-                if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
-                    logging.error('bad timestamp. client_ip: %s' % self.client_address[0])
-                    bad_req = 1
-                pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
-                client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
-                client_auth = pskcipher.decrypt(self.rfile.read(32))
-                if bad_req:
-                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
-                    continue
-                client = None
-                for user, passwd in USER_PASS.items():
-                    h = hmac.new(passwd.encode(), ts + client_pkey + user.encode(), hashlib.sha256).digest()
-                    if compare_digest(h, client_auth):
-                        client = user
-                        break
-                else:
-                    logging.error('user not found. client_ip: %s' % self.client_address[0])
-                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
-                    continue
-                pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
-                if pkey:
-                    logging.info('new key exchange. client: %s, ip: %s' % (client, self.client_address[0]))
-                    h = hmac.new(passwd.encode(), client_pkey + pkey + client.encode(), hashlib.sha256).digest()
-                    scert = SERVER_CERT.get_pub_key()
-                    r, s = SERVER_CERT.sign(h)
-                    data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(r)) + r + s
-                    self.wfile.write(pskcipher.encrypt(data))
-                    continue
-                else:
-                    logging.error('Private_key already registered. client: %s, ip: %s' % (client, self.client_address[0]))
-                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
-                    continue
-            elif cmd == 11:  # a connect request
-                client_pkey = pskcipher.decrypt(self.rfile.read(16))
-                if KeyManager.check_key(client_pkey):
+        try:
+            pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
+            while True:
+                bad_req = 0
+                rint = random.randint(64, 255)
+                cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
+                try:
+                    data = self.rfile.read(cmd_len)
+                except:
+                    break
+                self.connection.settimeout(self.timeout)
+                cmd = ord(pskcipher.decrypt(data))
+                if cmd == 10:  # client key exchange
+                    ts = pskcipher.decrypt(self.rfile.read(4))
+                    if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
+                        logging.error('bad timestamp. client_ip: %s' % self.client_address[0])
+                        bad_req = 1
+                    pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
+                    client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
+                    client_auth = pskcipher.decrypt(self.rfile.read(32))
+                    if bad_req:
+                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        continue
+                    client = None
+                    for user, passwd in USER_PASS.items():
+                        h = hmac.new(passwd.encode(), ts + client_pkey + user.encode(), hashlib.sha256).digest()
+                        if compare_digest(h, client_auth):
+                            client = user
+                            break
+                    else:
+                        logging.error('user not found. client_ip: %s' % self.client_address[0])
+                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        continue
+                    pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
+                    if pkey:
+                        logging.info('new key exchange. client: %s, ip: %s' % (client, self.client_address[0]))
+                        h = hmac.new(passwd.encode(), client_pkey + pkey + client.encode(), hashlib.sha256).digest()
+                        scert = SERVER_CERT.get_pub_key()
+                        r, s = SERVER_CERT.sign(h)
+                        data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(r)) + r + s
+                        self.wfile.write(pskcipher.encrypt(data))
+                        continue
+                    else:
+                        logging.error('Private_key already registered. client: %s, ip: %s' % (client, self.client_address[0]))
+                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        continue
+                elif cmd == 11:  # a connect request
+                    client_pkey = pskcipher.decrypt(self.rfile.read(16))
+                    if KeyManager.check_key(client_pkey):
+                        ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
+                        self.rfile.read(ctlen)
+                        self.rfile.read(MAC_LEN)
+                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        continue
+                    user = KeyManager.pkeyuser[client_pkey]
+                    cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, SALT, CTX, 1)
                     ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
-                    self.rfile.read(ctlen)
-                    self.rfile.read(MAC_LEN)
-                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
-                    continue
-                user = KeyManager.pkeyuser[client_pkey]
-                cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, SALT, CTX, 1)
-                ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
-                ct = self.rfile.read(ctlen)
-                mac = self.rfile.read(MAC_LEN)
-                data = cipher.decrypt(ct, mac)
-                buf = io.BytesIO(data)
-                ts = buf.read(4)
-                if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
-                    logging.error('bad timestamp, possible replay attrack')
-                    self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
-                    continue
-                passwd = USER_PASS[user]
-                host_len = ord(buf.read(1))
-                hostport = buf.read(host_len)
-                addr, port = parse_hostport(hostport)
-                if self._request_is_loopback((addr, port)):
-                    logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
-                    return self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
-                try:
-                    remote = None
-                    logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
-                                 addr, port, self.client_address[0], self.client_address[1], user))
-                    data = buf.read()
-                    if self.server.reverse:
-                        remote = create_connection(self.server.reverse, timeout=1)
-                        if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
-                            data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], user)).encode('latin1'), 1)
-                        else:
-                            a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], user)
-                            remote.sendall(a.encode('latin1'))
-                            remoterfile = remote.makefile('rb', 0)
-                            d = remoterfile.readline()
-                            while d not in (b'\r\n', b'\n', b'\r'):
-                                if not d:
-                                    raise IOError(0, 'remote closed')
+                    ct = self.rfile.read(ctlen)
+                    mac = self.rfile.read(MAC_LEN)
+                    data = cipher.decrypt(ct, mac)
+                    buf = io.BytesIO(data)
+                    ts = buf.read(4)
+                    if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
+                        logging.error('bad timestamp, possible replay attrack')
+                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        continue
+                    passwd = USER_PASS[user]
+                    host_len = ord(buf.read(1))
+                    hostport = buf.read(host_len)
+                    addr, port = parse_hostport(hostport)
+                    if self._request_is_loopback((addr, port)):
+                        logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
+                        return self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
+                    try:
+                        remote = None
+                        logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
+                                     addr, port, self.client_address[0], self.client_address[1], user))
+                        data = buf.read()
+                        if self.server.reverse:
+                            remote = create_connection(self.server.reverse, timeout=1)
+                            if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
+                                data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], user)).encode('latin1'), 1)
+                            else:
+                                a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], user)
+                                remote.sendall(a.encode('latin1'))
+                                remoterfile = remote.makefile('rb', 0)
                                 d = remoterfile.readline()
-                        remote.settimeout(10)
-                    if not remote:
-                        remote = create_connection((addr, port), timeout=10)
-                    remote.sendall(data)
-                    self.wfile.write(pskcipher.encrypt(chr(0) + chr(rint)) + os.urandom(rint))
-                    # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                except (IOError, OSError) as e:  # Connection refused
-                    logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
-                    self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
-                    continue
-                if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
-                    return
-            elif cmd in (1, 3, 4):
-                # A shadowsocks request
-                if not self.server.ss:
-                    logging.warning('shadowsocks not enabled for this server. port: %d' % self.server.server_address[1])
-                    return
-                if cmd == 1:
-                    addr = socket.inet_ntoa(pskcipher.decrypt(self.rfile.read(4)))
-                elif cmd == 3:
-                    addr = pskcipher.decrypt(self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1)))))
-                elif cmd == 4:
-                    addr = socket.inet_ntop(socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16)))
-                port = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
-                if self._request_is_loopback((addr, port)):
-                    logging.info('server %d access localhost:%d denied. from %s:%d' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1]))
-                    return
-                try:
-                    remote = None
-                    logging.info('server %d SS request %s:%d from %s:%d' % (self.server.server_address[1],
-                                 addr, port, self.client_address[0], self.client_address[1]))
-                    data = pskcipher.decrypt(self.connection.recv(self.bufsize))
-                    if self.server.reverse:
-                        remote = create_connection(self.server.reverse, timeout=1)
-                        if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
-                            data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], self.server.PSK)).encode('latin1'), 1)
-                        else:
-                            a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], self.server.PSK)
-                            remote.sendall(a.encode('latin1'))
-                            remoterfile = remote.makefile('rb', 0)
-                            d = remoterfile.readline()
-                            while d not in (b'\r\n', b'\n', b'\r'):
-                                if not d:
-                                    raise IOError(0, 'remote closed')
+                                while d not in (b'\r\n', b'\n', b'\r'):
+                                    if not d:
+                                        raise IOError(0, 'remote closed')
+                                    d = remoterfile.readline()
+                            remote.settimeout(10)
+                        if not remote:
+                            remote = create_connection((addr, port), timeout=10)
+                        remote.sendall(data)
+                        self.wfile.write(pskcipher.encrypt(chr(0) + chr(rint)) + os.urandom(rint))
+                        # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    except (IOError, OSError) as e:  # Connection refused
+                        logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
+                        self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
+                        continue
+                    if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
+                        return
+                elif cmd in (1, 3, 4):
+                    # A shadowsocks request
+                    if not self.server.ss:
+                        logging.warning('shadowsocks not enabled for this server. port: %d' % self.server.server_address[1])
+                        return
+                    if cmd == 1:
+                        addr = socket.inet_ntoa(pskcipher.decrypt(self.rfile.read(4)))
+                    elif cmd == 3:
+                        addr = pskcipher.decrypt(self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1)))))
+                    elif cmd == 4:
+                        addr = socket.inet_ntop(socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16)))
+                    port = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
+                    if self._request_is_loopback((addr, port)):
+                        logging.info('server %d access localhost:%d denied. from %s:%d' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1]))
+                        return
+                    try:
+                        remote = None
+                        logging.info('server %d SS request %s:%d from %s:%d' % (self.server.server_address[1],
+                                     addr, port, self.client_address[0], self.client_address[1]))
+                        data = pskcipher.decrypt(self.connection.recv(self.bufsize))
+                        if self.server.reverse:
+                            remote = create_connection(self.server.reverse, timeout=1)
+                            if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
+                                data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], self.server.PSK)).encode('latin1'), 1)
+                            else:
+                                a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], self.server.PSK)
+                                remote.sendall(a.encode('latin1'))
+                                remoterfile = remote.makefile('rb', 0)
                                 d = remoterfile.readline()
-                        remote.settimeout(10)
-                    if not remote:
-                        remote = create_connection((addr, port), timeout=10)
-                    remote.sendall(data)
-                    return self.ssforward_tcp(self.connection, remote, pskcipher, timeout=60)
-                except (IOError, OSError) as e:  # Connection refused
-                    logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
-                    return
-            else:
-                logging.warning('unknown cmd, bad encryption key?')
-                break
+                                while d not in (b'\r\n', b'\n', b'\r'):
+                                    if not d:
+                                        raise IOError(0, 'remote closed')
+                                    d = remoterfile.readline()
+                            remote.settimeout(10)
+                        if not remote:
+                            remote = create_connection((addr, port), timeout=10)
+                        remote.sendall(data)
+                        return self.ssforward_tcp(self.connection, remote, pskcipher, timeout=60)
+                    except (IOError, OSError) as e:  # Connection refused
+                        logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
+                        return
+                else:
+                    logging.warning('unknown cmd, bad encryption key?')
+                    break
+        except Exception as e:
+            logging.error(repr(e))
+            logging.error(traceback.format_exc())
         try:
             self.connection.close()
         except:
