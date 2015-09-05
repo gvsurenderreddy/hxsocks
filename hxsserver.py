@@ -277,6 +277,12 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         return
                 else:
                     logging.warning('unknown cmd %d, bad encryption key?' % cmd)
+                    ins, _, _ = select.select([self.connection], [], [], 1)
+                    while ins:
+                        data = self.connection.recv(self.bufsize)
+                        if not data:
+                            break
+                        ins, _, _ = select.select([self.connection], [], [], 1)
                     break
         except Exception as e:
             logging.error(repr(e))
