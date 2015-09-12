@@ -211,17 +211,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         data = buf.read()
                         if self.server.reverse:
                             remote = create_connection(self.server.reverse, timeout=1)
-                            if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
-                                data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], user)).encode('latin1'), 1)
-                            else:
-                                a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], user)
-                                remote.sendall(a.encode('latin1'))
-                                remoterfile = remote.makefile('rb', 0)
+                            a = 'CONNECT %s:%d HTTP/1.0\r\nHost: %s:%d\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, addr, port, self.client_address[0], self.client_address[1], user)
+                            remote.sendall(a.encode('latin1'))
+                            remoterfile = remote.makefile('rb', 0)
+                            d = remoterfile.readline()
+                            while d not in (b'\r\n', b'\n', b'\r'):
+                                if not d:
+                                    raise IOError(0, 'remote closed')
                                 d = remoterfile.readline()
-                                while d not in (b'\r\n', b'\n', b'\r'):
-                                    if not d:
-                                        raise IOError(0, 'remote closed')
-                                    d = remoterfile.readline()
                             remote.settimeout(10)
                         if not remote:
                             remote = create_connection((addr, port), timeout=10)
@@ -256,17 +253,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         data = pskcipher.decrypt(self.connection.recv(self.bufsize))
                         if self.server.reverse:
                             remote = create_connection(self.server.reverse, timeout=1)
-                            if data.startswith((b'GET', b'POST', b'HEAD', b'PUT', b'DELETE', b'TRACE', b'OPTIONS', b'PATCH', b'CONNECT')) and b'HTTP/1' in data and b'\r\n' in data:
-                                data = data.replace(b'\r\n', ('\r\nss-realip: %s:%s\r\nss-client: %s\r\n' % (self.client_address[0], self.client_address[1], self.server.PSK)).encode('latin1'), 1)
-                            else:
-                                a = 'CONNECT %s:%d HTTP/1.0\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, self.client_address[0], self.client_address[1], self.server.PSK)
-                                remote.sendall(a.encode('latin1'))
-                                remoterfile = remote.makefile('rb', 0)
+                            a = 'CONNECT %s:%d HTTP/1.0\r\nHost: %s:%d\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, addr, port, self.client_address[0], self.client_address[1], self.server.PSK)
+                            remote.sendall(a.encode('latin1'))
+                            remoterfile = remote.makefile('rb', 0)
+                            d = remoterfile.readline()
+                            while d not in (b'\r\n', b'\n', b'\r'):
+                                if not d:
+                                    raise IOError(0, 'remote closed')
                                 d = remoterfile.readline()
-                                while d not in (b'\r\n', b'\n', b'\r'):
-                                    if not d:
-                                        raise IOError(0, 'remote closed')
-                                    d = remoterfile.readline()
                             remote.settimeout(10)
                         if not remote:
                             remote = create_connection((addr, port), timeout=10)
