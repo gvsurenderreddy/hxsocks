@@ -223,7 +223,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             remote.settimeout(10)
                         if not remote:
                             remote = create_connection((addr, port), timeout=10)
-                        remote.sendall(data)
+                        if data:
+                            remote.sendall(data)
                         self.wfile.write(pskcipher.encrypt(chr(0) + chr(rint)) + os.urandom(rint))
                         # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     except (IOError, OSError) as e:  # Connection refused
@@ -271,7 +272,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
                         return
                 else:
-                    logging.warning('unknown cmd %d, bad encryption key?' % cmd)
+                    if cmd < 256:
+                        logging.warning('unknown cmd %d, bad encryption key?' % cmd)
                     ins, _, _ = select.select([self.connection], [], [], 1)
                     while ins:
                         data = self.connection.recv(self.bufsize)
@@ -297,38 +299,40 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 if not ins:
                     break
                 if local in ins:
-                    ctlen = self.rfile.read(2)
-                    if not ctlen:
-                        # client is no longer sending anything
+                    ct_len = self.rfile.read(2)
+                    if not ct_len:
+                        # client closed
                         fds.remove(local)
+                        remote.shutdown(socket.SHUT_WR)
                         break
-                    ctlen = struct.unpack('>H', pskcipher.decrypt(ctlen))[0]
-                    if ctlen:
-                        ct = self.rfile.read(ctlen)
-                        mac = self.rfile.read(MAC_LEN)
-                        if ctlen < 512:
-                            self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1))))
-                        data = cipher.decrypt(ct, mac)
+                    ct_len = struct.unpack('>H', pskcipher.decrypt(ct_len))[0]
+                    ct = self.rfile.read(ct_len)
+                    mac = self.rfile.read(MAC_LEN)
+                    data = cipher.decrypt(ct, mac)
+                    data = data[1:0-ord(data[0])] if ord(data[0]) else data[1:]
+                    if data:
                         remote.sendall(data)
                     else:
                         # client is no longer sending anything, gracefully
                         remote.shutdown(socket.SHUT_WR)
-                        self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1))))
                         fds.remove(local)
                         readable = 0
                 if remote in ins:
                     data = remote.recv(self.bufsize)
                     if data:
+                        padding_len = random.randint(64, 255) if len(data) < 256 else 0
+                        padding = (b'\x00' * padding_len) if padding_len else b''
+                        data = chr(padding_len) + data + padding
                         ct, mac = cipher.encrypt(data)
                         data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
-                        if len(ct) < 512:
-                            rint = random.randint(64, 255)
-                            data += pskcipher.encrypt(chr(rint)) + os.urandom(rint)
                         local.sendall(data)
                     else:
                         # remote no longer sending anything.
-                        rint = random.randint(64, 255)
-                        data = pskcipher.encrypt(b'\x00\x00' + chr(rint)) + os.urandom(rint)
+                        padding_len = random.randint(64, 255)
+                        padding = b'\x00' * padding_len
+                        data = chr(padding_len) + padding
+                        ct, mac = cipher.encrypt(data)
+                        data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
                         local.sendall(data)
                         writeable = 0
                         fds.remove(remote)
