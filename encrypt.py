@@ -311,13 +311,13 @@ if __name__ == '__main__':
     for method in lst:
         try:
             cipher = Encryptor('123456', method)
-            t = time.time()
+            t = time.clock()
             for _ in range(1049):
                 a = cipher.encrypt(s)
                 b = cipher.encrypt(s)
                 c = cipher.decrypt(a)
                 d = cipher.decrypt(b)
-            print('%s %ss' % (method, time.time() - t))
+            print('%s %ss' % (method, time.clock() - t))
         except Exception as e:
             print(repr(e))
     print('test AE')
@@ -331,12 +331,12 @@ if __name__ == '__main__':
         try:
             cipher1 = AEncryptor(b'123456', method, 'salt', 'ctx', False)
             cipher2 = AEncryptor(b'123456', method, 'salt', 'ctx', True)
-            t = time.time()
+            t = time.clock()
             for _ in range(1049):
                 a, b = cipher1.encrypt(s)
                 c, d = cipher1.encrypt(s)
                 cipher2.decrypt(a, b)
                 cipher2.decrypt(c, d)
-            print('%s-HMAC %ss' % (method, time.time() - t))
+            print('%s-HMAC %ss' % (method, time.clock() - t))
         except Exception as e:
             print(repr(e))
