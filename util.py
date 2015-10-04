@@ -20,6 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from collections import OrderedDict, defaultdict
+import time
+import random
 import re
 import socket
 from repoze.lru import lru_cache
@@ -95,6 +98,79 @@ def parse_hostport(host, default_port=80):
         return m.group(1).strip('[]'), int(m.group(2))
     else:
         return host.strip('[]'), default_port
+
+
+class iv_store(object):
+
+    def __init__(self, maxlen, timeout):
+        self.maxlen = maxlen
+        self.timeout = timeout
+        self.store = OrderedDict()
+        self.last_time_used = time.time()
+
+    def add(self, item):
+        self.last_time_used = time.time()
+        if random.random() < 0.01:
+            self._clean()
+        if item in self:
+            raise ValueError("iv reused")
+        self.store[item] = self.last_time_used
+        while len(self.store) > self.maxlen:
+            self.store.popitem()
+
+    def __contains__(self, item):
+        if random.random() < 0.01:
+            self._clean()
+        self.last_time_used = time.time()
+        try:
+            if self.store[item] < time.time() - self.timeout:
+                while True:
+                    a, _ = self.store.popitem()
+                    if a == item:
+                        break
+                return False
+            else:
+                return True
+        except KeyError:
+            return False
+
+    def _clean(self):
+        garbage = []
+        for k in self.store:
+            if self.store[k] < time.time() - self.timeout:
+                garbage.append[k]
+            else:
+                break
+        for k in garbage:
+            del self.store[k]
+
+    def __str__(self):
+        return str([k for k in self.store])
+
+    def __repr__(self):
+        return str([k for k in self.store])
+
+
+class iv_checker(object):
+    # check reused iv, removing out-dated data automatically
+
+    def __init__(self, maxlen, timeout):
+        self.timeout = timeout * 10
+        self.store = defaultdict(lambda: iv_store(maxlen, timeout))
+
+    def check(self, key, iv):
+        if random.random() < 0.01:
+            self._clean()
+        self.store[key].add(iv)
+
+    def _clean(self):
+        garbage = []
+        for k, v in self.store.items():
+            if v.last_time_used < time.time() - self.timeout:
+                garbage.append(k)
+        for k in garbage:
+            del self.store[k]
+
 
 if __name__ == "__main__":
     t = socket.getaddrinfo('www.baidu.com', 80)
