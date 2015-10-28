@@ -132,6 +132,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
 
     def handle(self):
         try:
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
             while True:
                 bad_req = 0
@@ -223,6 +224,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             remote.settimeout(10)
                         if not remote:
                             remote = create_connection((addr, port), timeout=10)
+                        remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                         if data:
                             remote.sendall(data)
                         self.wfile.write(pskcipher.encrypt(chr(0) + chr(rint)) + os.urandom(rint))
