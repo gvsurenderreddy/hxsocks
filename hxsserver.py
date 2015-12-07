@@ -323,16 +323,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     data = remote.recv(self.bufsize)
                     if data:
                         padding_len = random.randint(64, 255) if len(data) < 256 else 0
-                        padding = (b'\x00' * padding_len) if padding_len else b''
-                        data = chr(padding_len) + data + padding
+                        data = chr(padding_len) + data + b'\x00' * padding_len
                         ct, mac = cipher.encrypt(data)
                         data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
                         local.sendall(data)
                     else:
                         # remote no longer sending anything.
                         padding_len = random.randint(64, 255)
-                        padding = b'\x00' * padding_len
-                        data = chr(padding_len) + padding
+                        data = chr(padding_len) + b'\x00' * padding_len
                         ct, mac = cipher.encrypt(data)
                         data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
                         local.sendall(data)
