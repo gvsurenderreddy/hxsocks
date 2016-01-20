@@ -155,6 +155,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
                     client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
                     client_auth = pskcipher.decrypt(self.rfile.read(32))
+                    pad_len = ord(pskcipher.decrypt(self.rfile.read(1)))
+                    pskcipher.decrypt(self.rfile.read(pad_len))
                     if bad_req:
                         self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                         continue
@@ -173,8 +175,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         logging.info('new key exchange. client: %s, ip: %s' % (client, self.client_address[0]))
                         h = hmac.new(passwd.encode(), client_pkey + pkey + client.encode(), hashlib.sha256).digest()
                         scert = SERVER_CERT.get_pub_key()
-                        signature = SERVER_CERT.sign(h, self.hash_algo)
-                        data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(signature)) + signature
+                        signature = SERVER_CERT.sign(h, self.server.hash_algo)
+                        data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(signature)) + signature\
+                            + chr(rint) + os.urandom(rint)
                         self.wfile.write(pskcipher.encrypt(data))
                         continue
                     else:
@@ -345,6 +348,10 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 raise
             if e.args[0] in (errno.EBADF,):
                 return
+        except Exception as e:
+            logging.error(repr(e))
+            logging.error(traceback.format_exc())
+            raise e
         finally:
             try:
                 remote.close()
@@ -376,6 +383,10 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 raise
             if e.args[0] in (errno.EBADF,):
                 return
+        except Exception as e:
+            logging.error(repr(e))
+            logging.error(traceback.format_exc())
+            raise e
         finally:
             for sock in (remote, local):
                 try:
