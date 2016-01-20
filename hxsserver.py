@@ -60,7 +60,6 @@ DEFAULT_METHOD = 'rc4-md5'
 DEFAULT_HASH = 'sha256'
 SALT = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
 CTX = b'hxsocks'
-MAC_LEN = 16
 
 USER_PASS = {'user': 'pass'}
 SERVER_CERT = None
@@ -189,14 +188,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     if KeyManager.check_key(client_pkey):
                         ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                         self.rfile.read(ctlen)
-                        self.rfile.read(MAC_LEN)
+                        self.rfile.read(pskcipher.key_len)
                         self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
                         continue
                     user = KeyManager.pkeyuser[client_pkey]
                     cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, SALT, CTX, 1)
                     ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                     ct = self.rfile.read(ctlen)
-                    mac = self.rfile.read(MAC_LEN)
+                    mac = self.rfile.read(cipher.key_len)
                     data = cipher.decrypt(ct, mac)
                     buf = io.BytesIO(data)
                     ts = buf.read(4)
@@ -206,8 +205,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         continue
                     passwd = USER_PASS[user]
                     host_len = ord(buf.read(1))
-                    hostport = buf.read(host_len)
-                    addr, port = parse_hostport(hostport)
+                    addr = buf.read(host_len)
+                    port = struct.unpack('>H', buf.read(2))[0]
                     if self._request_is_loopback((addr, port)):
                         logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
                         return self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
@@ -215,7 +214,6 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         remote = None
                         logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
                                      addr, port, self.client_address[0], self.client_address[1], user))
-                        data = buf.read()
                         if self.server.reverse:
                             remote = create_connection(self.server.reverse, timeout=1)
                             a = 'CONNECT %s:%d HTTP/1.0\r\nHost: %s:%d\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, addr, port, self.client_address[0], self.client_address[1], user)
@@ -230,8 +228,6 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         if not remote:
                             remote = create_connection((addr, port), timeout=10)
                         remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                        if data:
-                            remote.sendall(data)
                         self.wfile.write(pskcipher.encrypt(chr(0) + chr(rint)) + os.urandom(rint))
                         # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     except (IOError, OSError) as e:  # Connection refused
@@ -314,7 +310,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         break
                     ct_len = struct.unpack('>H', pskcipher.decrypt(ct_len))[0]
                     ct = self.rfile.read(ct_len)
-                    mac = self.rfile.read(MAC_LEN)
+                    mac = self.rfile.read(cipher.key_len)
                     data = cipher.decrypt(ct, mac)
                     data = data[1:0-ord(data[0])] if ord(data[0]) else data[1:]
                     if data:
