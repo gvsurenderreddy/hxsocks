@@ -44,12 +44,7 @@ from collections import defaultdict, deque
 from util import iv_checker
 from repoze.lru import lru_cache
 from ctypes_libsodium import Salsa20Crypto
-try:
-    from M2Crypto.EVP import Cipher
-    from M2Crypto import EC
-except ImportError:
-    sys.stderr.write('python-M2Crypto is requered!')
-    sys.stderr.flush()
+from streamcipher import StreamCipher as Cipher
 try:
     from hmac import compare_digest
 except ImportError:
@@ -105,6 +100,7 @@ method_supported = {
     'rc4-md5': (16, 16),
     'salsa20': (32, 8),
     'chacha20': (32, 8),
+    'chacha20-ietf': (32, 12),
 }
 
 
@@ -126,7 +122,7 @@ def create_rc4_md5(method, key, iv, op):
 def get_cipher(key, method, op, iv):
     if method == 'rc4-md5':
         return create_rc4_md5(method, key, iv, op)
-    elif method in ('salsa20', 'chacha20'):
+    elif method in ('salsa20', 'chacha20', 'chacha20-ietf'):
         return Salsa20Crypto(method, key, iv, op)
     else:
         return Cipher(method.replace('-', '_'), key, iv, op)
@@ -242,61 +238,6 @@ class AEncryptor(object):
         if compare_digest(rmac, mac):
             return pt
         raise ValueError('MAC verification failed!')
-
-
-class ECC(object):
-    curve = {256: EC.NID_secp521r1,
-             192: EC.NID_secp384r1,
-             128: EC.NID_secp256k1,
-             32: EC.NID_secp521r1,
-             24: EC.NID_secp384r1,
-             16: EC.NID_secp256k1,
-             }
-
-    def __init__(self, key_len=128, from_file=None):
-        if from_file:
-            self.ec = EC.load_key(from_file)
-        else:
-            self.ec = EC.gen_params(self.curve[key_len])
-            self.ec.gen_key()
-
-    def get_pub_key(self):
-        return self.ec.pub().get_der()[:]
-
-    def get_dh_key(self, otherKey):
-        pk = EC.pub_key_from_der(buffer(otherKey))
-        return self.ec.compute_dh_key(pk)
-
-    def save(self, dest):
-        self.ec.save_key(dest, cipher=None)
-
-    def sign(self, digest):
-        '''Sign the given digest using ECDSA. Returns a tuple (r,s), the two ECDSA signature parameters.'''
-        return self.ec.sign_dsa(digest)
-
-    def verify(self, digest, r, s):
-        '''Verify the given digest using ECDSA. r and s are the ECDSA signature parameters.
-           if verified, return 1.
-        '''
-        return self.ec.verify_dsa(digest, r, s)
-
-    @staticmethod
-    def verify_with_pub_key(pubkey, digest, r, s):
-        '''Verify the given digest using ECDSA. r and s are the ECDSA signature parameters.
-           if verified, return 1.
-        '''
-        try:
-            if isinstance(pubkey, bytes):
-                pubkey = EC.pub_key_from_der(buffer(pubkey))
-            return pubkey.verify_dsa(digest, r, s)
-        except:
-            return 0
-
-    @staticmethod
-    def save_pub_key(pubkey, dest):
-        pubk = EC.pub_key_from_der(buffer(pubkey))
-        pubk.save_pub_key(dest)
-
 
 if __name__ == '__main__':
     print('encrypt and decrypt 20MB data.')

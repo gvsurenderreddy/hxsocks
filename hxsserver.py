@@ -23,9 +23,6 @@
 
 from __future__ import with_statement
 
-
-__version__ = '0.0.1'
-
 import os
 import sys
 try:
@@ -54,9 +51,13 @@ import urlparse
 import traceback
 from collections import defaultdict, deque
 from util import create_connection, parse_hostport, get_ip_address
-from encrypt import compare_digest, ECC
+from encrypt import compare_digest
+from ecc import ECC
+
+__version__ = '0.0.1'
 
 DEFAULT_METHOD = 'rc4-md5'
+DEFAULT_HASH = 'sha256'
 SALT = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
 CTX = b'hxsocks'
 MAC_LEN = 16
@@ -114,8 +115,9 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.serverinfo = serverinfo
         p = urlparse.urlparse(serverinfo)
         self.PSK = urlparse.parse_qs(p.query).get('PSK', [''])[0]
-        self.method = urlparse.parse_qs(p.query).get('method', [''])[0] or DEFAULT_METHOD
-        self.ss = bool(self.PSK) and urlparse.parse_qs(p.query).get('ss', ['1'])[0] == '1'
+        self.method = urlparse.parse_qs(p.query).get('method', [DEFAULT_METHOD])[0]
+        self.hash_algo = urlparse.parse_qs(p.query).get('hash', [DEFAULT_HASH])[0].upper()
+        self.ss = self.PSK and urlparse.parse_qs(p.query).get('ss', ['1'])[0] == '1'
         reverse = urlparse.parse_qs(p.query).get('reverse', [''])[0]
         self.reverse = parse_hostport(reverse) if reverse else None
         addrs = socket.getaddrinfo(p.hostname, p.port)
@@ -171,8 +173,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         logging.info('new key exchange. client: %s, ip: %s' % (client, self.client_address[0]))
                         h = hmac.new(passwd.encode(), client_pkey + pkey + client.encode(), hashlib.sha256).digest()
                         scert = SERVER_CERT.get_pub_key()
-                        r, s = SERVER_CERT.sign(h)
-                        data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(r)) + r + s
+                        signature = SERVER_CERT.sign(h, self.hash_algo)
+                        data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(signature)) + signature
                         self.wfile.write(pskcipher.encrypt(data))
                         continue
                     else:
