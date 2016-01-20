@@ -19,7 +19,7 @@ class ECC(object):
             with open(from_file, 'rb') as f:
                 data = f.read()
             if data.startswith(b'-----'):
-                self.ec_private = load_pem_private_key(data, backend=default_backend())
+                self.ec_private = load_pem_private_key(data, None, backend=default_backend())
             else:
                 self.ec_private = load_der_private_key(data, backend=default_backend())
         else:
