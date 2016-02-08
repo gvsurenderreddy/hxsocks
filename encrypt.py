@@ -21,7 +21,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 #
-# Copyright (C) 2013-2015 Jiang Chao <sgzz.cj@gmail.com>
+# Copyright (C) 2013-2016 Jiang Chao <sgzz.cj@gmail.com>
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the
@@ -36,15 +36,17 @@
 # You should have received a copy of the GNU General Public License along
 # with this program; if not, see <http://www.gnu.org/licenses>.
 
-import sys
 import os
 import hashlib
 import hmac
-from collections import defaultdict, deque
 from util import iv_checker
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
 from repoze.lru import lru_cache
 from ctypes_libsodium import Salsa20Crypto
-from streamcipher import StreamCipher as Cipher
+
 try:
     from hmac import compare_digest
 except ImportError:
@@ -94,55 +96,87 @@ method_supported = {
     'aes-128-cfb': (16, 16),
     'aes-192-cfb': (24, 16),
     'aes-256-cfb': (32, 16),
-    'aes-128-ofb': (16, 16),
-    'aes-192-ofb': (24, 16),
-    'aes-256-ofb': (32, 16),
+    # 'aes-128-ofb': (16, 16),
+    # 'aes-192-ofb': (24, 16),
+    # 'aes-256-ofb': (32, 16),
+    # 'aes-128-ctr': (16, 16),
+    # 'aes-192-ctr': (24, 16),
+    # 'aes-256-ctr': (32, 16),
+    'camellia-128-cfb': (16, 16),
+    'camellia-192-cfb': (24, 16),
+    'camellia-256-cfb': (32, 16),
+    # 'camellia-128-ofb': (16, 16),
+    # 'camellia-192-ofb': (24, 16),
+    # 'camellia-256-ofb': (32, 16),
     'rc4-md5': (16, 16),
     'salsa20': (32, 8),
     'chacha20': (32, 8),
     'chacha20-ietf': (32, 12),
+    'bypass': (16, 0),  # for testing only
 }
 
 
-def get_cipher_len(method):
-    return method_supported.get(method, None)
+class bypass(object):
+    def __init__(self):
+        pass
 
+    def update(self, buf):
+        return buf
 
 IV_CHECKER = iv_checker(1048576, 3600)
 
 
-def create_rc4_md5(method, key, iv, op):
-    md5 = hashlib.md5()
-    md5.update(key)
-    md5.update(iv)
-    rc4_key = md5.digest()
-    return Cipher('rc4', rc4_key, '', op)
-
-
 def get_cipher(key, method, op, iv):
-    if method == 'rc4-md5':
-        return create_rc4_md5(method, key, iv, op)
-    elif method in ('salsa20', 'chacha20', 'chacha20-ietf'):
+    if method == 'bypass':
+        return bypass()
+    if method in ('salsa20', 'chacha20', 'chacha20-ietf'):
         return Salsa20Crypto(method, key, iv, op)
+    elif method == 'rc4-md5':
+        md5 = hashlib.md5()
+        md5.update(key)
+        md5.update(iv)
+        key = md5.digest()
+        method = 'rc4'
+    cipher = None
+
+    if method.startswith('rc4'):
+        pass
+    elif method.endswith('ctr'):
+        mode = modes.CTR(iv)
+    elif method.endswith('ofb'):
+        mode = modes.OFB(iv)
+    elif method.endswith('cfb'):
+        mode = modes.CFB(iv)
     else:
-        return Cipher(method.replace('-', '_'), key, iv, op)
+        raise ValueError('operation mode "%s" not supported!' % method.upper())
+
+    if method.startswith('rc4'):
+        cipher = Cipher(algorithms.ARC4(key), None, default_backend())
+    elif method.startswith('aes'):
+        cipher = Cipher(algorithms.AES(key), mode, default_backend())
+    elif method.startswith('camellia'):
+        cipher = Cipher(algorithms.Camellia(key), mode, default_backend())
+    else:
+        raise ValueError('crypto algorithm "%s" not supported!' % method.upper())
+
+    return cipher.encryptor() if op else cipher.decryptor()
 
 
 class Encryptor(object):
     def __init__(self, password, method=None, servermode=False):
         if method not in method_supported:
             raise ValueError('encryption method not supported')
+        if not isinstance(password, bytes):
+            password = password.encode('utf8')
         self.key = password
         self.method = method
         self.servermode = servermode
-        self.iv_len = 0
         self.iv_sent = False
-        self.cipher_iv = b''
         self.decipher = None
 
-        self.key_len, self.iv_len = get_cipher_len(method)
+        self.key_len, self.iv_len = method_supported.get(method)
         self.key = EVP_BytesToKey(password, self.key_len)
-        self.cipher_iv = random_string(self.iv_len)
+        self.cipher_iv = random_string(self.iv_len) if self.iv_len else b''
         self.cipher = get_cipher(self.key, method, 1, self.cipher_iv)
 
     def encrypt(self, buf):
@@ -197,14 +231,14 @@ class AEncryptor(object):
             raise ValueError('encryption method not supported')
         self.method = method
         self.servermode = servermode
-        self.key_len, self.iv_len = get_cipher_len(method)
+        self.key_len, self.iv_len = method_supported.get(method)
         if servermode:
             self.encrypt_key, self.auth_key, self.decrypt_key, self.de_auth_key = hkdf(key, salt, ctx, self.key_len)
         else:
             self.decrypt_key, self.de_auth_key, self.encrypt_key, self.auth_key = hkdf(key, salt, ctx, self.key_len)
         hfunc = key_len_to_hash[self.key_len]
         self.iv_sent = False
-        self.cipher_iv = random_string(self.iv_len)
+        self.cipher_iv = random_string(self.iv_len) if self.iv_len else b''
         self.cipher = get_cipher(self.encrypt_key, method, 1, self.cipher_iv)
         self.decipher = None
         self.enmac = hmac.new(self.auth_key, digestmod=hfunc)
@@ -241,14 +275,14 @@ class AEncryptor(object):
 
 if __name__ == '__main__':
     print('encrypt and decrypt 20MB data.')
-    s = os.urandom(10000)
+    s = os.urandom(10240)
     import time
     lst = sorted(method_supported.keys())
     for method in lst:
         try:
-            cipher = Encryptor('123456', method)
+            cipher = Encryptor(b'123456', method)
             t = time.clock()
-            for _ in range(1049):
+            for _ in range(1024):
                 a = cipher.encrypt(s)
                 b = cipher.encrypt(s)
                 c = cipher.decrypt(a)
@@ -257,18 +291,18 @@ if __name__ == '__main__':
         except Exception as e:
             print(repr(e))
     print('test AE')
-    ae1 = AEncryptor(b'123456', 'aes-256-cfb', 'salt', 'ctx', False)
-    ae2 = AEncryptor(b'123456', 'aes-256-cfb', 'salt', 'ctx', True)
+    ae1 = AEncryptor(b'123456', 'aes-256-cfb', b'salt', b'ctx', False)
+    ae2 = AEncryptor(b'123456', 'aes-256-cfb', b'salt', b'ctx', True)
     a, b = ae1.encrypt(b'abcde')
     c, d = ae1.encrypt(b'fg')
     print(ae2.decrypt(a, b))
     print(ae2.decrypt(c, d))
     for method in lst:
         try:
-            cipher1 = AEncryptor(b'123456', method, 'salt', 'ctx', False)
-            cipher2 = AEncryptor(b'123456', method, 'salt', 'ctx', True)
+            cipher1 = AEncryptor(b'123456', method, b'salt', b'ctx', False)
+            cipher2 = AEncryptor(b'123456', method, b'salt', b'ctx', True)
             t = time.clock()
-            for _ in range(1049):
+            for _ in range(1024):
                 a, b = cipher1.encrypt(s)
                 c, d = cipher1.encrypt(s)
                 cipher2.decrypt(a, b)

@@ -27,9 +27,9 @@ import re
 import socket
 from repoze.lru import lru_cache
 try:
-    from ipaddress import ip_address as ip_address
-except ImportError:
     from ipaddr import IPAddress as ip_address
+except ImportError:
+    from ipaddress import ip_address as ip_address
 
 
 @lru_cache(4096, timeout=90)
