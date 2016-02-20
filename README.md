@@ -1,4 +1,3 @@
 hxsocks
 ==================
-a multi-user, PFS-like shadowsocks.
-
+a multi-user, PFS encrypted socks proxy.
