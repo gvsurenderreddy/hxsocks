@@ -110,8 +110,9 @@ class KeyManager:
 class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
 
-    def __init__(self, serverinfo, RequestHandlerClass, bind_and_activate=True):
+    def __init__(self, serverinfo, forward, RequestHandlerClass, bind_and_activate=True):
         self.serverinfo = serverinfo
+        self.forward = set(forward)
         p = urlparse.urlparse(serverinfo)
         self.PSK = urlparse.parse_qs(p.query).get('PSK', [''])[0]
         self.method = urlparse.parse_qs(p.query).get('method', [DEFAULT_METHOD])[0]
@@ -207,7 +208,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     host_len = ord(buf.read(1))
                     addr = buf.read(host_len)
                     port = struct.unpack('>H', buf.read(2))[0]
-                    if self._request_is_loopback((addr, port)):
+                    if self._request_is_loopback((addr, port)) and port not in self.server.forward:
                         logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
                         return self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
                     try:
@@ -236,26 +237,38 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         continue
                     if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
                         return
-                elif cmd in (1, 3, 4):
+                elif cmd & 15 in (1, 3, 4):
                     # A shadowsocks request
+                    ota = cmd & 16
                     if not self.server.ss:
                         logging.warning('shadowsocks not enabled for this server. port: %d' % self.server.server_address[1])
                         return
-                    if cmd == 1:
-                        addr = socket.inet_ntoa(pskcipher.decrypt(self.rfile.read(4)))
-                    elif cmd == 3:
-                        addr = pskcipher.decrypt(self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1)))))
-                    elif cmd == 4:
-                        addr = socket.inet_ntop(socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16)))
+                    if cmd & 15 == 1:
+                        _addr = pskcipher.decrypt(self.rfile.read(4))
+                        addr = socket.inet_ntoa(_addr)
+                    elif cmd & 15 == 3:
+                        _addr = addr = pskcipher.decrypt(self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1)))))
+                    elif cmd & 15 == 4:
+                        _addr = socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16))
+                        addr = socket.inet_ntop(_addr)
                     port = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
-                    if self._request_is_loopback((addr, port)):
+                    # verify
+                    if ota:
+                        header = chr(cmd) + _addr + struct.pack('>H', port)
+                        self._ota_chunk_idx = 0
+                        rmac = pskcipher.decrypt(self.rfile.read(10))
+                        key = pskcipher.decipher_iv + pskcipher.key
+                        mac = hmac.new(key, header, hashlib.sha1).digest()[:10]
+                        if not compare_digest(rmac, mac):
+                            continue
+
+                    if self._request_is_loopback((addr, port)) and port not in self.server.forward:
                         logging.info('server %d access localhost:%d denied. from %s:%d' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1]))
                         return
                     try:
                         remote = None
-                        logging.info('server %d SS request %s:%d from %s:%d' % (self.server.server_address[1],
-                                     addr, port, self.client_address[0], self.client_address[1]))
-                        data = pskcipher.decrypt(self.connection.recv(self.bufsize))
+                        logging.info('server %d SS request %s:%d from %s:%d %s' % (self.server.server_address[1],
+                                     addr, port, self.client_address[0], self.client_address[1], 'with ota' if ota else ''))
                         if self.server.reverse:
                             remote = create_connection(self.server.reverse, timeout=1)
                             a = 'CONNECT %s:%d HTTP/1.0\r\nHost: %s:%d\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, addr, port, self.client_address[0], self.client_address[1], self.server.PSK)
@@ -269,14 +282,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             remote.settimeout(10)
                         if not remote:
                             remote = create_connection((addr, port), timeout=10)
-                        remote.sendall(data)
+                        if ota:
+                            return self.ssforward_tcp_ota(self.connection, remote, pskcipher, timeout=60)
                         return self.ssforward_tcp(self.connection, remote, pskcipher, timeout=60)
                     except (IOError, OSError) as e:  # Connection refused
                         logging.warn('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
                         return
                 else:
-                    if cmd < 256:
-                        logging.warning('unknown cmd %d, bad encryption key?' % cmd)
+                    logging.warning('unknown cmd %d, bad encryption key?' % cmd)
                     ins, _, _ = select.select([self.connection], [], [], 1)
                     while ins:
                         data = self.connection.recv(self.bufsize)
@@ -287,10 +300,6 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
         except Exception as e:
             logging.error(repr(e))
             logging.error(traceback.format_exc())
-        try:
-            self.connection.close()
-        except:
-            pass
 
     def forward_tcp(self, local, remote, cipher, pskcipher, timeout=60):
         readable = 1
@@ -390,6 +399,47 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 except (OSError, IOError):
                     pass
 
+    def ssforward_tcp_ota(self, local, remote, cipher, timeout=60):
+        try:
+            while 1:
+                ins, _, _ = select.select([local, remote], [], [], timeout)
+                if not ins:
+                    break
+                if local in ins:
+                    data_len = struct.unpack('>H', cipher.decrypt(self.rfile.read(2)))[0]
+                    rmac = cipher.decrypt(self.rfile.read(10))
+                    data = cipher.decrypt(self.rfile.read(data_len))
+                    index = struct.pack('>I', self._ota_chunk_idx)
+                    key = cipher.decipher_iv + index
+                    mac = hmac.new(key, data, hashlib.sha1).digest()[:10]
+                    if encrypt.compare_digest(rmac, mac):
+                        self._ota_chunk_idx += 1
+                        remote.sendall(data)
+                    else:
+                        logging.warning('OTA Failed')
+                if remote in ins:
+                    data = remote.recv(self.bufsize)
+                    if not data:
+                        break
+                    local.sendall(cipher.encrypt(data))
+        except socket.timeout:
+            pass
+        except (OSError, IOError) as e:
+            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
+                raise
+            if e.args[0] in (errno.EBADF,):
+                return
+        except Exception as e:
+            logging.error(repr(e))
+            logging.error(traceback.format_exc())
+            raise e
+        finally:
+            for sock in (remote, local):
+                try:
+                    sock.close()
+                except (OSError, IOError):
+                    pass
+
     def _request_is_loopback(self, req):
         try:
             return get_ip_address(req[0]).is_loopback
@@ -397,11 +447,11 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             pass
 
 
-def start_servers(config):
+def start_servers(config, forward):
     for serverinfo in config:
         try:
             logging.info('starting server: %s' % serverinfo)
-            ssserver = HXSocksServer(serverinfo, HXSocksHandler)
+            ssserver = HXSocksServer(serverinfo, forward, HXSocksHandler)
             threading.Thread(target=ssserver.serve_forever).start()
         except Exception as e:
             logging.error('something wrong with config: %r' % e)
@@ -431,9 +481,10 @@ def main():
         d = json.loads(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')).read())
         USER_PASS = d['users']
         servers = d['servers']
+        forward = d.get('forward', [])
     for s in servers:
         logging.info('starting server: %s' % s)
-        ssserver = HXSocksServer(s, HXSocksHandler)
+        ssserver = HXSocksServer(s, forward, HXSocksHandler)
         threading.Thread(target=ssserver.serve_forever).start()
 
 if __name__ == '__main__':

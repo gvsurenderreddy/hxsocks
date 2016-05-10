@@ -51,6 +51,7 @@ try:
     from hmac import compare_digest
 except ImportError:
     def compare_digest(a, b):
+        # if a and b are identical, return True
         if isinstance(a, str):
             if len(a) != len(b):
                 return False
@@ -112,7 +113,7 @@ method_supported = {
     'salsa20': (32, 8),
     'chacha20': (32, 8),
     'chacha20-ietf': (32, 12),
-    'bypass': (16, 0),  # for testing only
+    'bypass': (16, 16),  # for testing only
 }
 
 
@@ -172,12 +173,13 @@ class Encryptor(object):
         self.method = method
         self.servermode = servermode
         self.iv_sent = False
-        self.decipher = None
 
         self.key_len, self.iv_len = method_supported.get(method)
         self.key = EVP_BytesToKey(password, self.key_len)
-        self.cipher_iv = random_string(self.iv_len) if self.iv_len else b''
+        self.cipher_iv = random_string(self.iv_len)
         self.cipher = get_cipher(self.key, method, 1, self.cipher_iv)
+        self.decipher_iv = None
+        self.decipher = None
 
     def encrypt(self, buf):
         if len(buf) == 0:
@@ -192,10 +194,10 @@ class Encryptor(object):
         if len(buf) == 0:
             raise ValueError('buf should not be empty')
         if self.decipher is None:
-            decipher_iv = buf[:self.iv_len]
+            self.decipher_iv = buf[:self.iv_len]
             if self.servermode:
-                IV_CHECKER.check(self.key, decipher_iv)
-            self.decipher = get_cipher(self.key, self.method, 0, decipher_iv)
+                IV_CHECKER.check(self.key, self.decipher_iv)
+            self.decipher = get_cipher(self.key, self.method, 0, self.decipher_iv)
             buf = buf[self.iv_len:]
             if len(buf) == 0:
                 return buf
@@ -238,7 +240,7 @@ class AEncryptor(object):
             self.decrypt_key, self.de_auth_key, self.encrypt_key, self.auth_key = hkdf(key, salt, ctx, self.key_len)
         hfunc = key_len_to_hash[self.key_len]
         self.iv_sent = False
-        self.cipher_iv = random_string(self.iv_len) if self.iv_len else b''
+        self.cipher_iv = random_string(self.iv_len)
         self.cipher = get_cipher(self.encrypt_key, method, 1, self.cipher_iv)
         self.decipher = None
         self.enmac = hmac.new(self.auth_key, digestmod=hfunc)
