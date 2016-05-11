@@ -321,29 +321,27 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     ct = self.rfile.read(ct_len)
                     mac = self.rfile.read(cipher.key_len)
                     data = cipher.decrypt(ct, mac)
-                    data = data[1:0-ord(data[0])] if ord(data[0]) else data[1:]
-                    if data:
-                        remote.sendall(data)
+                    pad_len = ord(data[0])
+                    if 0 < pad_len < 64:
+                        # fake chunk, drop
+                        pass
                     else:
-                        # client is no longer sending anything, gracefully
-                        remote.shutdown(socket.SHUT_WR)
-                        fds.remove(local)
-                        readable = 0
+                        data = data[1:0-pad_len] if pad_len else data[1:]
+                        if data:
+                            remote.sendall(data)
+                        else:
+                            # client is no longer sending anything, gracefully
+                            remote.shutdown(socket.SHUT_WR)
+                            fds.remove(local)
+                            readable = 0
                 if remote in ins:
                     data = remote.recv(self.bufsize)
-                    if data:
-                        padding_len = random.randint(64, 255) if len(data) < 256 else 0
-                        data = chr(padding_len) + data + b'\x00' * padding_len
-                        ct, mac = cipher.encrypt(data)
-                        data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
-                        local.sendall(data)
-                    else:
-                        # remote no longer sending anything.
-                        padding_len = random.randint(64, 255)
-                        data = chr(padding_len) + b'\x00' * padding_len
-                        ct, mac = cipher.encrypt(data)
-                        data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
-                        local.sendall(data)
+                    padding_len = random.randint(64, 255) if len(data) < 256 else 0
+                    data = chr(padding_len) + data + b'\x00' * padding_len
+                    ct, mac = cipher.encrypt(data)
+                    data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
+                    local.sendall(data)
+                    if not data:
                         writeable = 0
                         fds.remove(remote)
         except socket.timeout:
