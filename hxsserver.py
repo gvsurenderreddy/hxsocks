@@ -146,7 +146,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     cmd = ord(pskcipher.decrypt(data))
                 except Exception as e:
                     logging.error('cmd Exception: server %s %r from %s:%s' % (self.server.server_address[1], e, self.client_address[0], self.client_address[1]))
-                    cmd = 1000
+                    return
                 if cmd == 10:  # client key exchange
                     ts = pskcipher.decrypt(self.rfile.read(4))
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
