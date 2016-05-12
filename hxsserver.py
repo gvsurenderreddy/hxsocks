@@ -322,8 +322,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     mac = self.rfile.read(cipher.key_len)
                     data = cipher.decrypt(ct, mac)
                     pad_len = ord(data[0])
-                    if 0 < pad_len < 64:
+                    if 0 < pad_len < 8:
                         # fake chunk, drop
+                        # TODO: respond fake chunk if pad_len == 1, could cause trouble
                         pass
                     else:
                         data = data[1:0-pad_len] if pad_len else data[1:]
@@ -336,7 +337,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             readable = 0
                 if remote in ins:
                     data = remote.recv(self.bufsize)
-                    padding_len = random.randint(64, 255) if len(data) < 256 else 0
+                    padding_len = random.randint(8, 255)
                     data = chr(padding_len) + data + b'\x00' * padding_len
                     ct, mac = cipher.encrypt(data)
                     data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
