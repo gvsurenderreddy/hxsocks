@@ -305,6 +305,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
         readable = 1
         writeable = 1
         fds = [local, remote]
+        total_send = 0
         try:
             while fds:
                 ins, _, _ = select.select(fds, [], [], timeout)
@@ -337,14 +338,20 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             readable = 0
                 if remote in ins:
                     data = remote.recv(self.bufsize)
+                    if not data:
+                        writeable = 0
+                        fds.remove(remote)
+                        if total_send < 8196 and random.random() < 0.5:
+                            _data = chr(2) + b'\x00' * random.randint(1024, 8196)
+                            ct, mac = cipher.encrypt(_data)
+                            _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
+                            local.sendall(_data)
+                    total_send += len(data)
                     padding_len = random.randint(8, 255)
                     data = chr(padding_len) + data + b'\x00' * padding_len
                     ct, mac = cipher.encrypt(data)
                     data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
                     local.sendall(data)
-                    if not data:
-                        writeable = 0
-                        fds.remove(remote)
         except socket.timeout:
             pass
         except (OSError, IOError) as e:
