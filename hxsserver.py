@@ -482,6 +482,7 @@ def main():
         SERVER_CERT.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
 
     servers = ['hxp://0.0.0.0:90']
+    forward = []
     if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')):
         global USER_PASS
         d = json.loads(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')).read())

@@ -44,7 +44,6 @@ from util import iv_checker
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from repoze.lru import lru_cache
 from ctypes_libsodium import Salsa20Crypto
 
 try:
@@ -72,7 +71,6 @@ def random_string(size):
     return b'\x16\x03\x03\x00' + os.urandom(size-4)
 
 
-@lru_cache(128)
 def EVP_BytesToKey(password, key_len):
     # equivalent to OpenSSL's EVP_BytesToKey() with count 1
     # so that we make the same key and iv as nodejs version
@@ -204,7 +202,6 @@ class Encryptor(object):
         return self.decipher.update(buf)
 
 
-@lru_cache(128)
 def hkdf(key, salt, ctx, key_len):
     '''
     consider key come from a key exchange protocol.

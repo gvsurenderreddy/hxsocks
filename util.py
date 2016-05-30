@@ -25,14 +25,12 @@ import time
 import random
 import re
 import socket
-from repoze.lru import lru_cache
 try:
     from ipaddr import IPAddress as ip_address
 except ImportError:
     from ipaddress import ip_address as ip_address
 
 
-@lru_cache(4096, timeout=90)
 def getaddrinfo(host, port=None, family=0, socktype=0, proto=0, flags=0):
     """return (family, socktype, proto, canonname, sockaddr)
        >>> socket.getaddrinfo("www.python.org", 80, 0, 0, socket.SOL_TCP)
@@ -81,7 +79,6 @@ def create_connection(address, timeout=object(), source_address=None):
         raise socket.error("getaddrinfo returns an empty list")
 
 
-@lru_cache(1024, timeout=900)
 def get_ip_address(host):
     try:
         return ip_address(host)
