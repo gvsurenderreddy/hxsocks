@@ -225,12 +225,13 @@ class AEncryptor(object):
     '''
     Provide Authenticated Encryption
     '''
-    def __init__(self, key, method, salt, ctx, servermode):
+    def __init__(self, key, method, salt, ctx, servermode, mac_len):
         if method not in method_supported:
             raise ValueError('encryption method not supported')
         self.method = method
         self.servermode = servermode
         self.key_len, self.iv_len = method_supported.get(method)
+        self.mac_len = mac_len
         if servermode:
             self.encrypt_key, self.auth_key, self.decrypt_key, self.de_auth_key = hkdf(key, salt, ctx, self.key_len)
         else:
@@ -254,7 +255,7 @@ class AEncryptor(object):
         if ad:
             self.enmac.update(ad)
         self.enmac.update(ct)
-        return ct, self.enmac.digest()
+        return ct, self.enmac.digest()[:self.mac_len]
 
     def decrypt(self, buf, mac, ad=None):
         if len(buf) == 0:
@@ -262,7 +263,7 @@ class AEncryptor(object):
         if ad:
             self.demac.update(ad)
         self.demac.update(buf)
-        rmac = self.demac.digest()
+        rmac = self.demac.digest()[:self.mac_len]
         if self.decipher is None:
             decipher_iv = buf[:self.iv_len]
             self.decipher = get_cipher(self.decrypt_key, self.method, 0, decipher_iv)

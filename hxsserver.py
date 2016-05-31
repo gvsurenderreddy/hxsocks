@@ -58,6 +58,7 @@ __version__ = '0.0.1'
 
 DEFAULT_METHOD = 'rc4-md5'
 DEFAULT_HASH = 'sha256'
+MAC_LEN = 16
 SALT = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
 CTX = b'hxsocks'
 
@@ -138,7 +139,6 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
             while True:
                 bad_req = 0
-                rint = random.randint(64, 255)
                 cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
                 try:
                     data = self.rfile.read(cmd_len)
@@ -148,17 +148,25 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     logging.error('cmd Exception: server %s %r from %s:%s' % (self.server.server_address[1], e, self.client_address[0], self.client_address[1]))
                     return
                 if cmd == 10:  # client key exchange
-                    ts = pskcipher.decrypt(self.rfile.read(4))
+                    rint = random.randint(64, 255)
+                    req_len = pskcipher.decrypt(self.rfile.read(2))
+                    req_len = struct.unpack('>H', req_len)[0]
+                    data = pskcipher.decrypt(self.rfile.read(req_len))
+                    data = io.BytesIO(data)
+                    ts = data.read(4)
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                         logging.error('bad timestamp. client_ip: %s' % self.client_address[0])
                         bad_req = 1
-                    pklen = ord(pskcipher.decrypt(self.rfile.read(1)))
-                    client_pkey = pskcipher.decrypt(self.rfile.read(pklen))
-                    client_auth = pskcipher.decrypt(self.rfile.read(32))
-                    pad_len = ord(pskcipher.decrypt(self.rfile.read(1)))
-                    pskcipher.decrypt(self.rfile.read(pad_len))
+                    pklen = ord(data.read(1))
+                    client_pkey = data.read(pklen)
+                    client_auth = data.read(32)
+
+                    def _send(data):
+                        data = struct.pack('>H', len(data)) + data
+                        self.wfile.write(pskcipher.encrypt(data))
+
                     if bad_req:
-                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        _send(chr(1) + os.urandom(rint))
                         continue
                     client = None
                     for user, passwd in USER_PASS.items():
@@ -168,7 +176,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             break
                     else:
                         logging.error('user not found. client_ip: %s' % self.client_address[0])
-                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        _send(chr(1) + os.urandom(rint))
                         continue
                     pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
                     if pkey:
@@ -176,33 +184,39 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         h = hmac.new(passwd.encode(), client_pkey + pkey + client.encode(), hashlib.sha256).digest()
                         scert = SERVER_CERT.get_pub_key()
                         signature = SERVER_CERT.sign(h, self.server.hash_algo)
-                        data = chr(0) + chr(len(pkey)) + pkey + h + chr(len(scert)) + scert + chr(len(signature)) + signature\
-                            + chr(rint) + os.urandom(rint)
-                        self.wfile.write(pskcipher.encrypt(data))
+                        data = chr(0) + chr(len(pkey)) + chr(len(scert)) + chr(len(signature)) + pkey + h + scert + signature + os.urandom(rint)
+                        _send(data)
                         continue
                     else:
                         logging.error('Private_key already registered. client: %s, ip: %s' % (client, self.client_address[0]))
-                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        _send(chr(1) + os.urandom(rint))
                         continue
                 elif cmd == 11:  # a connect request
                     client_pkey = pskcipher.decrypt(self.rfile.read(16))
+                    rint = random.randint(64, 2048)
+
+                    def _send(data):
+                        data = struct.pack('>H', len(data)) + data
+                        self.wfile.write(pskcipher.encrypt(data))
+
                     if KeyManager.check_key(client_pkey):
                         ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                         self.rfile.read(ctlen)
-                        self.rfile.read(pskcipher.key_len)
-                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        self.rfile.read(MAC_LEN)
+                        _send(chr(1) + os.urandom(rint))
                         continue
+
                     user = KeyManager.pkeyuser[client_pkey]
-                    cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, SALT, CTX, 1)
+                    cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, SALT, CTX, 1, MAC_LEN)
                     ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                     ct = self.rfile.read(ctlen)
-                    mac = self.rfile.read(cipher.key_len)
+                    mac = self.rfile.read(MAC_LEN)
                     data = cipher.decrypt(ct, mac)
                     buf = io.BytesIO(data)
                     ts = buf.read(4)
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                         logging.error('bad timestamp, possible replay attrack')
-                        self.wfile.write(pskcipher.encrypt(chr(1) + chr(rint)) + os.urandom(rint))
+                        _send(chr(1) + os.urandom(rint))
                         continue
                     passwd = USER_PASS[user]
                     host_len = ord(buf.read(1))
@@ -210,7 +224,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     port = struct.unpack('>H', buf.read(2))[0]
                     if self._request_is_loopback((addr, port)) and port not in self.server.forward:
                         logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
-                        return self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
+                        return _send(chr(2) + os.urandom(rint))
                     try:
                         remote = None
                         logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
@@ -229,11 +243,11 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         if not remote:
                             remote = create_connection((addr, port), timeout=10)
                         remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                        self.wfile.write(pskcipher.encrypt(chr(0) + chr(rint)) + os.urandom(rint))
+                        _send(chr(0) + os.urandom(rint))
                         # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     except (IOError, OSError) as e:  # Connection refused
                         logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
-                        self.wfile.write(pskcipher.encrypt(chr(2) + chr(rint)) + os.urandom(rint))
+                        _send(chr(2) + os.urandom(rint))
                         continue
                     if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
                         return
@@ -320,7 +334,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         break
                     ct_len = struct.unpack('>H', pskcipher.decrypt(ct_len))[0]
                     ct = self.rfile.read(ct_len)
-                    mac = self.rfile.read(cipher.key_len)
+                    mac = self.rfile.read(MAC_LEN)
                     data = cipher.decrypt(ct, mac)
                     pad_len = ord(data[0])
                     if 0 < pad_len < 8:
@@ -481,7 +495,7 @@ def main():
         SERVER_CERT = ECC(key_len=32)
         SERVER_CERT.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
 
-    servers = ['hxp://0.0.0.0:90']
+    servers = ['hxp://0.0.0.0:9000']
     forward = []
     if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')):
         global USER_PASS
