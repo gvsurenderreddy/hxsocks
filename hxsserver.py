@@ -342,6 +342,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     mac = self.rfile.read(MAC_LEN)
                     data = cipher.decrypt(ct, mac)
                     pad_len = ord(data[0])
+                    cmd = ord(data[-1])
                     if 0 < pad_len < 8:
                         # fake chunk, drop
                         # TODO: respond fake chunk if pad_len == 1, could cause trouble
@@ -352,9 +353,13 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             remote.sendall(data)
                         else:
                             logging.debug('client close, gracefully')
-                            remote.shutdown(socket.SHUT_WR)
+                            if cmd:
+                                remote.close()
+                            else:
+                                remote.shutdown(socket.SHUT_WR)
                             fds.remove(local)
                             readable = 0
+
                 if remote in ins:
                     data = remote.recv(self.bufsize)
                     if not data:
