@@ -130,13 +130,14 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
 class HXSocksHandler(SocketServer.StreamRequestHandler):
-    timeout = 60
+    timeout = 10
     bufsize = 1024 * 16
 
     def handle(self):
         try:
             self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
+            self.connection.settimeout(self.timeout)
             while True:
                 bad_req = 0
                 cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
@@ -251,6 +252,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         continue
                     if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
                         return
+                    logging.debug('hxsocks connect reusable, except next connection')
                 elif cmd & 15 in (1, 3, 4):
                     # A shadowsocks request
                     ota = cmd & 16
@@ -322,13 +324,16 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
         total_send = 0
         try:
             while fds:
+                if len(fds) < 2:
+                    timeout = 10
                 ins, _, _ = select.select(fds, [], [], timeout)
                 if not ins:
+                    logging.debug('timed out')
                     break
                 if local in ins:
                     ct_len = self.rfile.read(2)
                     if not ct_len:
-                        # client closed
+                        logging.debug('client closed')
                         fds.remove(local)
                         remote.shutdown(socket.SHUT_WR)
                         break
@@ -346,7 +351,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         if data:
                             remote.sendall(data)
                         else:
-                            # client is no longer sending anything, gracefully
+                            logging.debug('client close, gracefully')
                             remote.shutdown(socket.SHUT_WR)
                             fds.remove(local)
                             readable = 0
@@ -478,7 +483,7 @@ def start_servers(config, forward):
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG,
+    logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)-8s %(message)s',
                         datefmt='%Y-%m-%d %H:%M:%S', filemode='a+')
 
