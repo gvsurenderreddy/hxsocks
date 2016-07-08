@@ -8,10 +8,10 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key, l
 class ECC(object):
     curve = {256: ec.SECP521R1,
              192: ec.SECP384R1,
-             128: ec.SECP256K1,
+             128: ec.SECP256R1,
              32: ec.SECP521R1,
              24: ec.SECP384R1,
-             16: ec.SECP256K1,
+             16: ec.SECP256R1,
              }
 
     def __init__(self, key_len=128, from_file=None):
