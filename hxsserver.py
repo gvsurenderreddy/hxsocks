@@ -379,14 +379,13 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
         except socket.timeout:
             pass
         except (OSError, IOError) as e:
-            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
-                raise
             if e.args[0] in (errno.EBADF,):
                 return
+            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
+                raise
         except Exception as e:
             logging.error(repr(e))
             logging.error(traceback.format_exc())
-            raise e
         finally:
             try:
                 remote.close()
@@ -414,14 +413,13 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
         except socket.timeout:
             pass
         except (OSError, IOError) as e:
-            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
-                raise
             if e.args[0] in (errno.EBADF,):
                 return
+            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
+                raise
         except Exception as e:
             logging.error(repr(e))
             logging.error(traceback.format_exc())
-            raise e
         finally:
             for sock in (remote, local):
                 try:
@@ -455,14 +453,13 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
         except socket.timeout:
             pass
         except (OSError, IOError) as e:
-            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
-                raise
             if e.args[0] in (errno.EBADF,):
                 return
+            if e.args[0] not in (errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE):
+                raise
         except Exception as e:
             logging.error(repr(e))
             logging.error(traceback.format_exc())
-            raise e
         finally:
             for sock in (remote, local):
                 try:
