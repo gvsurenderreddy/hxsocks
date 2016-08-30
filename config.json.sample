@@ -1,5 +1,5 @@
 {
-    "servers": ["hxs://0.0.0.0:80/?method=&PSK=&reverse="],
+    "servers": ["hxs://0.0.0.0:80/?method=&PSK="],
     "users": {"username": "passwd"},
 	"forward": [8000]
 }

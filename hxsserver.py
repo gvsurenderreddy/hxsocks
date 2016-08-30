@@ -119,8 +119,6 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.method = urlparse.parse_qs(p.query).get('method', [DEFAULT_METHOD])[0]
         self.hash_algo = urlparse.parse_qs(p.query).get('hash', [DEFAULT_HASH])[0].upper()
         self.ss = self.PSK and urlparse.parse_qs(p.query).get('ss', ['1'])[0] == '1'
-        reverse = urlparse.parse_qs(p.query).get('reverse', [''])[0]
-        self.reverse = parse_hostport(reverse) if reverse else None
         addrs = socket.getaddrinfo(p.hostname, p.port)
         if not addrs:
             raise ValueError('cant resolve listen address')
@@ -227,22 +225,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
                         return _send(chr(2) + os.urandom(rint))
                     try:
-                        remote = None
                         logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
                                      addr, port, self.client_address[0], self.client_address[1], user))
-                        if self.server.reverse:
-                            remote = create_connection(self.server.reverse, timeout=1)
-                            a = 'CONNECT %s:%d HTTP/1.0\r\nHost: %s:%d\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, addr, port, self.client_address[0], self.client_address[1], user)
-                            remote.sendall(a.encode('latin1'))
-                            remoterfile = remote.makefile('rb', 0)
-                            d = remoterfile.readline()
-                            while d not in (b'\r\n', b'\n', b'\r'):
-                                if not d:
-                                    raise IOError(0, 'remote closed')
-                                d = remoterfile.readline()
-                            remote.settimeout(10)
-                        if not remote:
-                            remote = create_connection((addr, port), timeout=10)
+                        remote = create_connection((addr, port), timeout=10)
                         remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                         _send(chr(0) + os.urandom(rint))
                         # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -285,19 +270,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         remote = None
                         logging.info('server %d SS request %s:%d from %s:%d %s' % (self.server.server_address[1],
                                      addr, port, self.client_address[0], self.client_address[1], 'with ota' if ota else ''))
-                        if self.server.reverse:
-                            remote = create_connection(self.server.reverse, timeout=1)
-                            a = 'CONNECT %s:%d HTTP/1.0\r\nHost: %s:%d\r\nss-realip: %s:%s\r\nss-client: %s\r\n\r\n' % (addr, port, addr, port, self.client_address[0], self.client_address[1], self.server.PSK)
-                            remote.sendall(a.encode('latin1'))
-                            remoterfile = remote.makefile('rb', 0)
-                            d = remoterfile.readline()
-                            while d not in (b'\r\n', b'\n', b'\r'):
-                                if not d:
-                                    raise IOError(0, 'remote closed')
-                                d = remoterfile.readline()
-                            remote.settimeout(10)
-                        if not remote:
-                            remote = create_connection((addr, port), timeout=10)
+                        remote = create_connection((addr, port), timeout=10)
                         if ota:
                             return self.ssforward_tcp_ota(self.connection, remote, pskcipher, timeout=60)
                         return self.ssforward_tcp(self.connection, remote, pskcipher, timeout=60)
