@@ -62,7 +62,7 @@ If the client-side already have a exchanged key, this step can be ignored.
 ## Connect Request
 
     +--------------+---------------+----------------+-------------------+---------+
-    | Request Type | Client Key ID | Request Length | Real Request Info |   MAC   |
+    | Request Type | Client Key ID | Request Length | Real Request Addr |   MAC   |
     +--------------+---------------+----------------+-------------------+---------+
     |       1      |       16      |        2       |	   Variable     |    16   |
     +--------------+---------------+----------------+-------------------+---------+
@@ -75,7 +75,7 @@ Length: the length of Real Request Info
 
 Request Type, Client Key ID and Length is encrypted with pre-shared key, while Real Request Info is encrypted with exchanged encryption key.
 
-Real Request Info: contains actual connect info
+Real Request Addr:
 
     +------------+----------+------+----------+
     | Time Stamp | Hostname | Port | Padding  |

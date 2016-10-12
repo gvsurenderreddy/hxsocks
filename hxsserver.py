@@ -50,7 +50,7 @@ import json
 import urlparse
 import traceback
 from collections import defaultdict, deque
-from util import create_connection, parse_hostport, get_ip_address
+from util import create_connection, get_ip_address
 from encrypt import compare_digest
 from ecc import ECC
 
@@ -115,10 +115,17 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.serverinfo = serverinfo
         self.forward = set(forward)
         p = urlparse.urlparse(serverinfo)
-        self.PSK = urlparse.parse_qs(p.query).get('PSK', [''])[0]
-        self.method = urlparse.parse_qs(p.query).get('method', [DEFAULT_METHOD])[0]
+        if p.scheme == 'ss':
+            self.PSK, self.method = p.password, p.username
+        elif p.scheme == 'hxs':
+            self.PSK = urlparse.parse_qs(p.query).get('PSK', [''])[0]
+            self.method = urlparse.parse_qs(p.query).get('method', [DEFAULT_METHOD])[0]
+        else:
+            raise ValueError('bad serverinfo: {}'.format(self.serverinfo))
+
         self.hash_algo = urlparse.parse_qs(p.query).get('hash', [DEFAULT_HASH])[0].upper()
         self.ss = self.PSK and urlparse.parse_qs(p.query).get('ss', ['1'])[0] == '1'
+
         addrs = socket.getaddrinfo(p.hostname, p.port)
         if not addrs:
             raise ValueError('cant resolve listen address')
@@ -238,7 +245,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
                         return
                     logging.debug('hxsocks connect reusable, except next connection')
-                elif cmd & 15 in (1, 3, 4):
+                elif cmd in (1, 3, 4, 17, 19, 20):
                     # A shadowsocks request
                     ota = cmd & 16
                     if not self.server.ss:
@@ -475,7 +482,7 @@ def main():
         SERVER_CERT = ECC(key_len=32)
         SERVER_CERT.save(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cert.pem'))
 
-    servers = ['hxp://0.0.0.0:9000']
+    servers = ['hxs://0.0.0.0:9000']
     forward = []
     if os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')):
         global USER_PASS

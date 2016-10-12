@@ -1,5 +1,5 @@
 {
-    "servers": ["hxs://0.0.0.0:80/?method=&PSK="],
+    "servers": ["ss://method:pre-shared-password@ip.address:port"],
     "users": {"username": "passwd"},
-	"forward": [8000]
+	"forward": []
 }
