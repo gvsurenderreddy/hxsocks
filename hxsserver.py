@@ -247,15 +247,17 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     logging.debug('hxsocks connect reusable, except next connection')
                 elif cmd in (1, 3, 4, 17, 19, 20):
                     # A shadowsocks request
-                    ota = cmd & 16
                     if not self.server.ss:
                         logging.warning('shadowsocks not enabled for this server. port: %d' % self.server.server_address[1])
                         return
+                    ota = cmd & 16
                     if cmd & 15 == 1:
                         _addr = pskcipher.decrypt(self.rfile.read(4))
                         addr = socket.inet_ntoa(_addr)
                     elif cmd & 15 == 3:
-                        _addr = addr = pskcipher.decrypt(self.rfile.read(ord(pskcipher.decrypt(self.rfile.read(1)))))
+                        _addr = pskcipher.decrypt(self.rfile.read(1))
+                        addr = pskcipher.decrypt(self.rfile.read(ord(_addr)))
+                        _addr += addr
                     elif cmd & 15 == 4:
                         _addr = socket.AF_INET6, pskcipher.decrypt(self.rfile.read(16))
                         addr = socket.inet_ntop(_addr)
@@ -268,6 +270,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         key = pskcipher.decipher_iv + pskcipher.key
                         mac = hmac.new(key, header, hashlib.sha1).digest()[:10]
                         if not compare_digest(rmac, mac):
+                            logging.error("OTA Failed!!")
                             continue
 
                     if self._request_is_loopback((addr, port)) and port not in self.server.forward:
