@@ -152,7 +152,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     cmd = ord(pskcipher.decrypt(data))
                 except Exception as e:
                     logging.error('cmd Exception: server %s %r from %s:%s' % (self.server.server_address[1], e, self.client_address[0], self.client_address[1]))
-                    return
+                    break
                 if cmd == 10:  # client key exchange
                     rint = random.randint(64, 255)
                     req_len = pskcipher.decrypt(self.rfile.read(2))
@@ -230,7 +230,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     port = struct.unpack('>H', buf.read(2))[0]
                     if self._request_is_loopback((addr, port)) and port not in self.server.forward:
                         logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
-                        return _send(chr(2) + os.urandom(rint))
+                        _send(chr(2) + os.urandom(rint))
+                        continue
                     try:
                         logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
                                      addr, port, self.client_address[0], self.client_address[1], user))
@@ -243,13 +244,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         _send(chr(2) + os.urandom(rint))
                         continue
                     if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
-                        return
+                        break
+                    self.connection.settimeout(60)
                     logging.debug('hxsocks connect reusable, except next connection')
                 elif cmd in (1, 3, 4, 17, 19, 20):
                     # A shadowsocks request
                     if not self.server.ss:
                         logging.warning('shadowsocks not enabled for this server. port: %d' % self.server.server_address[1])
-                        return
+                        break
                     ota = cmd & 16
                     if cmd & 15 == 1:
                         _addr = pskcipher.decrypt(self.rfile.read(4))
@@ -271,11 +273,11 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         mac = hmac.new(key, header, hashlib.sha1).digest()[:10]
                         if not compare_digest(rmac, mac):
                             logging.error("OTA Failed!!")
-                            continue
+                            break
 
                     if self._request_is_loopback((addr, port)) and port not in self.server.forward:
                         logging.info('server %d access localhost:%d denied. from %s:%d' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1]))
-                        return
+                        break
                     try:
                         remote = None
                         logging.info('server %d SS request %s:%d from %s:%d %s' % (self.server.server_address[1],
@@ -289,13 +291,13 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         return
                 else:
                     logging.warning('unknown cmd %d, bad encryption key?' % cmd)
-                    ins, _, _ = select.select([self.connection], [], [], 1)
-                    while ins:
-                        data = self.connection.recv(self.bufsize)
-                        if not data:
-                            break
-                        ins, _, _ = select.select([self.connection], [], [], 1)
                     break
+            ins, _, _ = select.select([self.connection], [], [], 1)
+            while ins:
+                data = self.connection.recv(self.bufsize)
+                if not data:
+                    break
+                ins, _, _ = select.select([self.connection], [], [], 1)
         except Exception as e:
             logging.error(repr(e))
             logging.error(traceback.format_exc())
