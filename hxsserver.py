@@ -41,18 +41,21 @@ import random
 import select
 import SocketServer
 import struct
+import base64
+from email.utils import formatdate
 import hashlib
 import hmac
 import logging
-import encrypt
 import io
 import json
 import urlparse
 import traceback
 from collections import defaultdict, deque
 from util import create_connection, get_ip_address
+import encrypt
 from encrypt import compare_digest
 from ecc import ECC
+from httputil import read_headers
 
 __version__ = '0.0.1'
 
@@ -61,6 +64,8 @@ DEFAULT_HASH = 'sha256'
 MAC_LEN = 16
 SALT = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
 CTX = b'hxsocks'
+
+MAGIC_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
 USER_PASS = {'user': 'pass'}
 SERVER_CERT = None
@@ -123,8 +128,20 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         else:
             raise ValueError('bad serverinfo: {}'.format(self.serverinfo))
 
-        self.hash_algo = urlparse.parse_qs(p.query).get('hash', [DEFAULT_HASH])[0].upper()
-        self.ss = self.PSK and urlparse.parse_qs(p.query).get('ss', ['1'])[0] == '1'
+        q = urlparse.parse_qs(p.query)
+
+        self._http_obfs = False
+        self._http_header_ws = b'HTTP/1.1 101 Switching Protocols\r\n'
+        self._http_header_ws += b'Server: %s\r\n' % q.get('UA', ['nginx/1.2.2'])[0].encode()
+        self._http_header_ws += b'Date: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+        self._http_header_ws += b'Sec-WebSocket-Accept: %s\r\n\r\n'
+
+        self._http_header = b'HTTP/1.1 200 OK\r\n'
+        self._http_header += b'Server: %s\r\n' % q.get('UA', ['nginx/1.2.2'])[0].encode()
+        self._http_header += b'Date: %s\r\nConnection: keep-alive\r\n\r\n'
+
+        self.hash_algo = q.get('hash', [DEFAULT_HASH])[0].upper()
+        self.ss = self.PSK and q.get('ss', ['1'])[0] == '1'
 
         addrs = socket.getaddrinfo(p.hostname, p.port)
         if not addrs:
@@ -143,11 +160,30 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
             self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
             self.connection.settimeout(self.timeout)
+            data = self.rfile.read(4)
+            if data in (b'GET ', b'POST'):
+                self._http_obfs = True
+                data += self.rfile.readline()
+                header_data, headers = read_headers(self.rfile)
+                # prep response
+                dt = formatdate(timeval=None, localtime=False, usegmt=True).encode()
+                if headers.get('Upgrade', '') == 'websocket':
+                    sec_key = headers.get('Sec-WebSocket-Key', '')
+                    sec_accept = base64.b64encode(hashlib.sha1(sec_key + MAGIC_GUID).digest()).encode()
+                    response_header = self.server._http_header_ws % (dt, sec_accept)
+                else:
+                    response_header = self.server._http_header % (dt)
+                # send response
+                self.wfile.write(response_header)
+                data = self.rfile.read(pskcipher.iv_len)
+            else:
+                self._http_obfs = False
+                data += self.rfile.read(pskcipher.iv_len - 4)
+            pskcipher.decrypt(data)
             while True:
                 bad_req = 0
-                cmd_len = 1 if pskcipher.decipher else pskcipher.iv_len + 1
                 try:
-                    data = self.rfile.read(cmd_len)
+                    data = self.rfile.read(1)
                     self.connection.settimeout(self.timeout)
                     cmd = ord(pskcipher.decrypt(data))
                 except Exception as e:

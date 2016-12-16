@@ -198,7 +198,7 @@ class Encryptor(object):
             self.decipher = get_cipher(self.key, self.method, 0, self.decipher_iv)
             buf = buf[self.iv_len:]
             if len(buf) == 0:
-                return buf
+                return
         return self.decipher.update(buf)
 
 
