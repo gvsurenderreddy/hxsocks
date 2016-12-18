@@ -67,6 +67,26 @@ CTX = b'hxsocks'
 
 MAGIC_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
+RESPONSE_HEADER = b'''\
+HTTP/1.1 200 OK\r\n\
+Server: {server}\r\n\
+Date: {date}\r\n\
+Content-Type: application/octet-stream\r\n\
+Content-Length: {size}\r\n\
+Connection: keep-alive\r\n\
+Cache-Control: private, no-cache, no-store, proxy-revalidate, no-transform\r\n\
+Pragma: no-cache\r\n\
+\r\n'''
+
+RESPONSE_HEADER_WS = b'''\
+HTTP/1.1 101 Switching Protocols\r\n\
+Server: {server}\r\n\
+Date: {date}\r\n\
+Upgrade: websocket\r\n\
+Connection: Upgrade\r\n'
+Sec-WebSocket-Accept: {ws_accept}\r\n\
+\r\n'''
+
 USER_PASS = {'user': 'pass'}
 SERVER_CERT = None
 
@@ -130,15 +150,8 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
         q = urlparse.parse_qs(p.query)
 
+        self.server = q.get('UA', ['nginx/1.2.2'])[0]
         self._http_obfs = False
-        self._http_header_ws = b'HTTP/1.1 101 Switching Protocols\r\n'
-        self._http_header_ws += b'Server: %s\r\n' % q.get('UA', ['nginx/1.2.2'])[0].encode()
-        self._http_header_ws += b'Date: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
-        self._http_header_ws += b'Sec-WebSocket-Accept: %s\r\n\r\n'
-
-        self._http_header = b'HTTP/1.1 200 OK\r\n'
-        self._http_header += b'Server: %s\r\n' % q.get('UA', ['nginx/1.2.2'])[0].encode()
-        self._http_header += b'Date: %s\r\nConnection: keep-alive\r\n\r\n'
 
         self.hash_algo = q.get('hash', [DEFAULT_HASH])[0].upper()
         self.ss = self.PSK and q.get('ss', ['1'])[0] == '1'
@@ -166,13 +179,16 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 data += self.rfile.readline()
                 header_data, headers = read_headers(self.rfile)
                 # prep response
-                dt = formatdate(timeval=None, localtime=False, usegmt=True).encode()
+                d = {'date': formatdate(timeval=None, localtime=False, usegmt=True),
+                     'server': self.server.server,
+                     }
                 if headers.get('Upgrade', '') == 'websocket':
                     sec_key = headers.get('Sec-WebSocket-Key', '')
-                    sec_accept = base64.b64encode(hashlib.sha1(sec_key + MAGIC_GUID).digest()).encode()
-                    response_header = self.server._http_header_ws % (dt, sec_accept)
+                    d['ws_accept'] = base64.b64encode(hashlib.sha1(sec_key + MAGIC_GUID).digest())
+                    response_header = RESPONSE_HEADER_WS.format(**d)
                 else:
-                    response_header = self.server._http_header % (dt)
+                    d['size'] = random.randint(128, 1024)
+                    response_header = RESPONSE_HEADER.format(**d)
                 # send response
                 self.wfile.write(response_header)
                 data = self.rfile.read(pskcipher.iv_len)
