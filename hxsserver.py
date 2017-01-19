@@ -253,15 +253,22 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     client_pkey = pskcipher.decrypt(self.rfile.read(16))
                     rint = random.randint(64, 2048)
 
-                    def _send(data):
-                        data = struct.pack('>H', len(data)) + data
-                        self.wfile.write(pskcipher.encrypt(data))
+                    def _send(code, cipher):
+                        if code == 1:
+                            data = os.urandom(rint)
+                            data = pskcipher.encrypt(struct.pack('>H', len(data))) + data
+                            self.wfile.write(data)
+                        else:
+                            ct, mac = cipher.encrypt(chr(code) + os.urandom(rint-1))
+                            data = ct + mac
+                            data = pskcipher.encrypt(struct.pack('>H', len(data))) + data
+                            self.wfile.write(data)
 
                     if KeyManager.check_key(client_pkey):
                         ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                         self.rfile.read(ctlen)
                         self.rfile.read(MAC_LEN)
-                        _send(chr(1) + os.urandom(rint))
+                        _send(1, None)
                         continue
 
                     user = KeyManager.pkeyuser[client_pkey]
@@ -274,7 +281,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     ts = buf.read(4)
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                         logging.error('bad timestamp, possible replay attrack')
-                        _send(chr(1) + os.urandom(rint))
+                        # in event of replay attack, a new key is required.
+                        KeyManager.del_key(client_pkey)
+                        _send(1, None)
                         continue
                     passwd = USER_PASS[user]
                     host_len = ord(buf.read(1))
@@ -282,18 +291,18 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     port = struct.unpack('>H', buf.read(2))[0]
                     if self._request_is_loopback((addr, port)) and port not in self.server.forward:
                         logging.info('server %d access localhost:%d denied. from %s:%d, %s' % (self.server.server_address[1], port, self.client_address[0], self.client_address[1], user))
-                        _send(chr(2) + os.urandom(rint))
+                        _send(2, cipher)
                         continue
                     try:
                         logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
                                      addr, port, self.client_address[0], self.client_address[1], user))
                         remote = create_connection((addr, port), timeout=10)
                         remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                        _send(chr(0) + os.urandom(rint))
+                        _send(0, cipher)
                         # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     except (IOError, OSError) as e:  # Connection refused
                         logging.warning('server %s:%d %r on connecting %s:%d' % (self.server.server_address[0], self.server.server_address[1], e, addr, port))
-                        _send(chr(2) + os.urandom(rint))
+                        _send(2, cipher)
                         continue
                     if self.forward_tcp(self.connection, remote, cipher, pskcipher, timeout=60):
                         break
