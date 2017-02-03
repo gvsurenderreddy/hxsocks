@@ -1,5 +1,6 @@
 {
-    "servers": ["ss://method:pre-shared-password@ip.address:port"],
+    "servers": ["ss://method:pre-shared-password@ip.address:port"
+               ,"hxs://0.0.0.0:443/?method=rc4-md5&PSK=secertpasswrod"],
     "users": {"username": "passwd"},
-	"forward": []
+    "forward": []
 }

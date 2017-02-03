@@ -75,11 +75,11 @@ Request Type, Client Key ID and Length is encrypted with pre-shared key, while R
 
 Real Request Addr:
 
-    +------------+----------+------+----------+
-    | Time Stamp | Hostname | Port | Padding  |
-    +------------+----------+------+----------+
-    |      4     | Variable |  2   | Variable |
-    +------------+----------+------+----------+
+    +-------------+---------+------------+----------+------+
+    | Padding Len | padding | Time Stamp | Hostname | Port |
+    +-------------+---------+------------+----------+------+
+    |      1      | Variable|      4     | Variable |  2   |
+    +-------------+---------+------------+----------+------+
 
 the first byte of Hostname indicates the length.
 

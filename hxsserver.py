@@ -197,7 +197,6 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                 data += self.rfile.read(pskcipher.iv_len - 4)
             pskcipher.decrypt(data)
             while True:
-                bad_req = 0
                 try:
                     data = self.rfile.read(1)
                     self.connection.settimeout(self.timeout)
@@ -213,8 +212,9 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     data = io.BytesIO(data)
                     ts = data.read(4)
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
+                        # possible replay attack
                         logging.error('bad timestamp. client_ip: %s' % self.client_address[0])
-                        bad_req = 1
+                        break
                     pklen = ord(data.read(1))
                     client_pkey = data.read(pklen)
                     client_auth = data.read(32)
@@ -223,9 +223,6 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         data = struct.pack('>H', len(data)) + data
                         self.wfile.write(pskcipher.encrypt(data))
 
-                    if bad_req:
-                        _send(chr(1) + os.urandom(rint))
-                        continue
                     client = None
                     for user, passwd in USER_PASS.items():
                         h = hmac.new(passwd.encode(), ts + client_pkey + user.encode(), hashlib.sha256).digest()
@@ -234,8 +231,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             break
                     else:
                         logging.error('user not found. client_ip: %s' % self.client_address[0])
-                        _send(chr(1) + os.urandom(rint))
-                        continue
+                        break
                     pkey, passwd = KeyManager.create_key(client, client_pkey, pskcipher.key_len)
                     if pkey:
                         logging.info('new key exchange. client: %s, ip: %s' % (client, self.client_address[0]))
@@ -247,8 +243,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         continue
                     else:
                         logging.error('Private_key already registered. client: %s, ip: %s' % (client, self.client_address[0]))
-                        _send(chr(1) + os.urandom(rint))
-                        continue
+                        # KeyManager.del_key(hashlib.md5(client_pkey).digest())
+                        break
                 elif cmd == 11:  # a connect request
                     client_pkey = pskcipher.decrypt(self.rfile.read(16))
                     rint = random.randint(64, 2048)
@@ -265,6 +261,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             self.wfile.write(data)
 
                     if KeyManager.check_key(client_pkey):
+                        logging.error('client key not exist or expired')
                         ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                         self.rfile.read(ctlen)
                         self.rfile.read(MAC_LEN)
@@ -278,13 +275,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     mac = self.rfile.read(MAC_LEN)
                     data = cipher.decrypt(ct, mac)
                     buf = io.BytesIO(data)
+                    pading_len = ord(buf.read(1))
+                    buf.read(pading_len)
                     ts = buf.read(4)
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                         logging.error('bad timestamp, possible replay attrack')
-                        # in event of replay attack, a new key is required.
-                        KeyManager.del_key(client_pkey)
-                        _send(1, None)
-                        continue
+                        # KeyManager.del_key(client_pkey)
+                        # _send(1, None)
+                        break
                     passwd = USER_PASS[user]
                     host_len = ord(buf.read(1))
                     addr = buf.read(host_len)
