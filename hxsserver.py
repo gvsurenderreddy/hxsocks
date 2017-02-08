@@ -261,7 +261,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             self.wfile.write(data)
 
                     if KeyManager.check_key(client_pkey):
-                        logging.error('client key not exist or expired')
+                        logging.error('client key not exist or expired. client ip: %s' % self.client_address[0])
                         ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                         self.rfile.read(ctlen)
                         self.rfile.read(MAC_LEN)
@@ -279,7 +279,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     buf.read(pading_len)
                     ts = buf.read(4)
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
-                        logging.error('bad timestamp, possible replay attrack')
+                        logging.error('bad timestamp, possible replay attrack. client ip: %s' % self.client_address[0])
                         # KeyManager.del_key(client_pkey)
                         # _send(1, None)
                         break
