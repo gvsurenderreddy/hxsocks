@@ -59,7 +59,7 @@ from httputil import read_headers
 
 __version__ = '0.0.1'
 
-DEFAULT_METHOD = 'rc4-md5'
+DEFAULT_METHOD = 'aes-128-cfb'
 DEFAULT_HASH = 'sha256'
 MAC_LEN = 16
 SALT = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
