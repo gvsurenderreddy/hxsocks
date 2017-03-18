@@ -275,15 +275,12 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     mac = self.rfile.read(MAC_LEN)
                     data = cipher.decrypt(ct, mac)
                     buf = io.BytesIO(data)
-                    pading_len = ord(buf.read(1))
-                    buf.read(pading_len)
                     ts = buf.read(4)
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
                         logging.error('bad timestamp, possible replay attrack. client ip: %s' % self.client_address[0])
                         # KeyManager.del_key(client_pkey)
                         # _send(1, None)
                         break
-                    passwd = USER_PASS[user]
                     host_len = ord(buf.read(1))
                     addr = buf.read(host_len)
                     port = struct.unpack('>H', buf.read(2))[0]

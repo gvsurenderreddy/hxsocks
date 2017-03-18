@@ -59,11 +59,11 @@ If the client-side already have a exchanged key, this step can be ignored.
 
 ### Client Request
 
-    +--------------+---------------+----------------+-------------------+---------+
-    | Request Type | Client Key ID | Request Length | Real Request Addr |   MAC   |
-    +--------------+---------------+----------------+-------------------+---------+
-    |       1      |       16      |        2       |	   Variable     |    16   |
-    +--------------+---------------+----------------+-------------------+---------+
+    +--------------+---------------+----------------+--------------+
+    | Request Type | Client Key ID | Request Length | Request Addr |
+    +--------------+---------------+----------------+--------------+
+    |       1      |       16      |        2       |   Variable   |
+    +--------------+---------------+----------------+--------------+
 
 Request Type: 11 for creating a new connection
 
@@ -71,15 +71,15 @@ Client Key ID: md5 digest for Client Key, identifies the user.
 
 Length: the length of Real Request Addr
 
-Request Type, Client Key ID and Length is encrypted with pre-shared key, while Real Request Addr is encrypted with exchanged key.
+Request Type, Client Key ID and Length is encrypted with pre-shared key, while Request Addr is encrypted with exchanged key.
 
-Real Request Addr:
+Request Addr:
 
-    +-------------+---------+------------+----------+------+
-    | Padding Len | padding | Time Stamp | Hostname | Port |
-    +-------------+---------+------------+----------+------+
-    |      1      | Variable|      4     | Variable |  2   |
-    +-------------+---------+------------+----------+------+
+    +------------+----------+------+----------+--------+
+    | Time Stamp | Hostname | Port | Padding  |   MAC  |
+    +------------+----------+------+----------+--------+
+    |      4     | Variable |  2   | Variable |   16   |
+    +------------+----------+------+----------+--------+
 
 the first byte of Hostname indicates the length.
 
