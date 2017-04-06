@@ -132,6 +132,14 @@ class KeyManager:
         del cls.pkeykey[pkey]
         cls.userpkeys[user].remove(pkey)
 
+    @classmethod
+    def get_user_by_pubkey(cls, pubkey):
+        return cls.pkeyuser[pubkey]
+
+    @classmethod
+    def get_skey_by_pubkey(cls, pubkey):
+        return cls.pkeykey[pubkey]
+
 
 class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     allow_reuse_address = True
@@ -268,8 +276,8 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         _send(1, None)
                         continue
 
-                    user = KeyManager.pkeyuser[client_pkey]
-                    cipher = encrypt.AEncryptor(KeyManager.pkeykey[client_pkey], self.server.method, SALT, CTX, 1, MAC_LEN)
+                    user = KeyManager.get_user_by_pubkey(client_pkey)
+                    cipher = encrypt.AEncryptor(KeyManager.get_skey_by_pubkey(client_pkey), self.server.method, SALT, CTX, 1, MAC_LEN)
                     ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                     ct = self.rfile.read(ctlen)
                     mac = self.rfile.read(MAC_LEN)
