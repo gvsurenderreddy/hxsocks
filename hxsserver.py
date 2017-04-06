@@ -260,19 +260,17 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     def _send(code, cipher):
                         if code == 1:
                             data = os.urandom(rint)
-                            data = pskcipher.encrypt(struct.pack('>H', len(data))) + data
+                            data = pskcipher.encrypt(struct.pack('>H', rint)) + data
                             self.wfile.write(data)
                         else:
-                            ct, mac = cipher.encrypt(chr(code) + os.urandom(rint-1))
-                            data = ct + mac
-                            data = pskcipher.encrypt(struct.pack('>H', len(data))) + data
+                            ct = cipher.encrypt(chr(code) + os.urandom(rint-1))
+                            data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
                             self.wfile.write(data)
 
                     if KeyManager.check_key(client_pkey):
                         logging.error('client key not exist or expired. client ip: %s' % self.client_address[0])
                         ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                         self.rfile.read(ctlen)
-                        self.rfile.read(MAC_LEN)
                         _send(1, None)
                         continue
 
@@ -280,8 +278,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     cipher = encrypt.AEncryptor(KeyManager.get_skey_by_pubkey(client_pkey), self.server.method, SALT, CTX, 1, MAC_LEN)
                     ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                     ct = self.rfile.read(ctlen)
-                    mac = self.rfile.read(MAC_LEN)
-                    data = cipher.decrypt(ct, mac)
+                    data = cipher.decrypt(ct)
                     buf = io.BytesIO(data)
                     ts = buf.read(4)
                     if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
@@ -388,8 +385,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         break
                     ct_len = struct.unpack('>H', pskcipher.decrypt(ct_len))[0]
                     ct = self.rfile.read(ct_len)
-                    mac = self.rfile.read(MAC_LEN)
-                    data = cipher.decrypt(ct, mac)
+                    data = cipher.decrypt(ct)
                     pad_len = ord(data[0])
                     cmd = ord(data[-1])
                     if 0 < pad_len < 8:
@@ -416,14 +412,14 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         fds.remove(remote)
                         if total_send < 8196 and random.random() < 0.5:
                             _data = chr(2) + b'\x00' * random.randint(1024, 8196)
-                            ct, mac = cipher.encrypt(_data)
-                            _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
+                            ct = cipher.encrypt(_data)
+                            _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
                             local.sendall(_data)
                     total_send += len(data)
                     padding_len = random.randint(8, 255)
                     data = chr(padding_len) + data + b'\x00' * padding_len
-                    ct, mac = cipher.encrypt(data)
-                    data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct + mac
+                    ct = cipher.encrypt(data)
+                    data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
                     local.sendall(data)
         except socket.timeout:
             pass

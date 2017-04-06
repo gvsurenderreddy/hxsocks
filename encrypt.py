@@ -255,13 +255,14 @@ class AEncryptor(object):
         if ad:
             self.enmac.update(ad)
         self.enmac.update(ct)
-        return ct, self.enmac.digest()[:self.mac_len]
+        return ct + self.enmac.digest()[:self.mac_len]
 
-    def decrypt(self, buf, mac, ad=None):
+    def decrypt(self, buf, ad=None):
         if len(buf) == 0:
             raise ValueError('buf should not be empty')
         if ad:
             self.demac.update(ad)
+        buf, mac = buf[:self.mac_len * -1], buf[self.mac_len * -1:]
         self.demac.update(buf)
         rmac = self.demac.digest()[:self.mac_len]
         if self.decipher is None:
@@ -293,20 +294,20 @@ if __name__ == '__main__':
     print('test AE')
     ae1 = AEncryptor(b'123456', 'aes-256-cfb', b'salt', b'ctx', False, 16)
     ae2 = AEncryptor(b'123456', 'aes-256-cfb', b'salt', b'ctx', True, 16)
-    a, b = ae1.encrypt(b'abcde')
-    c, d = ae1.encrypt(b'fg')
-    print(ae2.decrypt(a, b))
-    print(ae2.decrypt(c, d))
+    ct1 = ae1.encrypt(b'abcde')
+    ct2 = ae1.encrypt(b'fg')
+    print(ae2.decrypt(ct1))
+    print(ae2.decrypt(ct2))
     for method in lst:
         try:
             cipher1 = AEncryptor(b'123456', method, b'salt', b'ctx', False, 16)
             cipher2 = AEncryptor(b'123456', method, b'salt', b'ctx', True, 16)
             t = time.clock()
             for _ in range(1024):
-                a, b = cipher1.encrypt(s)
-                c, d = cipher1.encrypt(s)
-                cipher2.decrypt(a, b)
-                cipher2.decrypt(c, d)
+                ct1 = cipher1.encrypt(s)
+                ct2 = cipher1.encrypt(s)
+                cipher2.decrypt(ct1)
+                cipher2.decrypt(ct2)
             print('%s-HMAC %ss' % (method, time.clock() - t))
         except Exception as e:
             print(repr(e))
