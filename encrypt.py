@@ -68,7 +68,7 @@ except ImportError:
 
 
 def random_string(size):
-    return b'\x16\x03\x03\x00' + os.urandom(size-4)
+    return os.urandom(size)
 
 
 def EVP_BytesToKey(password, key_len):
@@ -111,7 +111,7 @@ method_supported = {
     'salsa20': (32, 8),
     'chacha20': (32, 8),
     'chacha20-ietf': (32, 12),
-    'bypass': (16, 16),  # for testing only
+    # 'bypass': (16, 16),  # for testing only
 }
 
 
@@ -236,11 +236,11 @@ class AEncryptor(object):
             self.encrypt_key, self.auth_key, self.decrypt_key, self.de_auth_key = hkdf(key, salt, ctx, self.key_len)
         else:
             self.decrypt_key, self.de_auth_key, self.encrypt_key, self.auth_key = hkdf(key, salt, ctx, self.key_len)
-        hfunc = key_len_to_hash[self.key_len]
         self.iv_sent = False
         self.cipher_iv = random_string(self.iv_len)
         self.cipher = get_cipher(self.encrypt_key, method, 1, self.cipher_iv)
         self.decipher = None
+        hfunc = key_len_to_hash[self.key_len]
         self.enmac = hmac.new(self.auth_key, digestmod=hfunc)
         self.demac = hmac.new(self.de_auth_key, digestmod=hfunc)
 
@@ -291,16 +291,16 @@ if __name__ == '__main__':
         except Exception as e:
             print(repr(e))
     print('test AE')
-    ae1 = AEncryptor(b'123456', 'aes-256-cfb', b'salt', b'ctx', False)
-    ae2 = AEncryptor(b'123456', 'aes-256-cfb', b'salt', b'ctx', True)
+    ae1 = AEncryptor(b'123456', 'aes-256-cfb', b'salt', b'ctx', False, 16)
+    ae2 = AEncryptor(b'123456', 'aes-256-cfb', b'salt', b'ctx', True, 16)
     a, b = ae1.encrypt(b'abcde')
     c, d = ae1.encrypt(b'fg')
     print(ae2.decrypt(a, b))
     print(ae2.decrypt(c, d))
     for method in lst:
         try:
-            cipher1 = AEncryptor(b'123456', method, b'salt', b'ctx', False)
-            cipher2 = AEncryptor(b'123456', method, b'salt', b'ctx', True)
+            cipher1 = AEncryptor(b'123456', method, b'salt', b'ctx', False, 16)
+            cipher2 = AEncryptor(b'123456', method, b'salt', b'ctx', True, 16)
             t = time.clock()
             for _ in range(1024):
                 a, b = cipher1.encrypt(s)
