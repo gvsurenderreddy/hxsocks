@@ -135,7 +135,7 @@ class iv_store(object):
         garbage = []
         for k in self.store:
             if self.store[k] < time.time() - self.timeout:
-                garbage.append[k]
+                garbage.append(k)
             else:
                 break
         for k in garbage:
