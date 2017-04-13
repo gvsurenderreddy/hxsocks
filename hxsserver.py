@@ -62,7 +62,6 @@ __version__ = '0.0.1'
 DEFAULT_METHOD = 'aes-128-cfb'
 DEFAULT_HASH = 'sha256'
 MAC_LEN = 16
-SALT = b'G\x91V\x14{\x00\xd9xr\x9d6\x99\x81GL\xe6c>\xa9\\\xd2\xc6\xe0:\x9c\x0b\xefK\xd4\x9ccU'
 CTX = b'hxsocks'
 
 MAGIC_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -179,7 +178,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
     def handle(self):
         try:
             self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method, servermode=1)
+            pskcipher = encrypt.Encryptor(self.server.PSK, self.server.method)
             self.connection.settimeout(self.timeout)
             data = self.rfile.read(4)
             if data in (b'GET ', b'POST'):
@@ -275,7 +274,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         continue
 
                     user = KeyManager.get_user_by_pubkey(client_pkey)
-                    cipher = encrypt.AEncryptor(KeyManager.get_skey_by_pubkey(client_pkey), self.server.method, SALT, CTX, 1, MAC_LEN)
+                    cipher = encrypt.AEncryptor(KeyManager.get_skey_by_pubkey(client_pkey), self.server.method, CTX)
                     ctlen = struct.unpack('>H', pskcipher.decrypt(self.rfile.read(2)))[0]
                     ct = self.rfile.read(ctlen)
                     data = cipher.decrypt(ct)
