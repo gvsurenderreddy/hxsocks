@@ -41,8 +41,6 @@ import random
 import select
 import SocketServer
 import struct
-import base64
-from email.utils import formatdate
 import hashlib
 import hmac
 import logging
@@ -51,11 +49,10 @@ import json
 import urlparse
 import traceback
 from collections import defaultdict, deque
-from util import create_connection, get_ip_address
+from util import create_connection, get_ip_address, parse_hostport
 import encrypt
 from encrypt import compare_digest
 from ecc import ECC
-from httputil import read_headers
 
 __version__ = '0.0.1'
 
@@ -134,6 +131,9 @@ class HXSocksServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
             raise ValueError('bad serverinfo: {}'.format(self.serverinfo))
 
         q = urlparse.parse_qs(p.query)
+
+        proxy = q.get('proxy', [''])[0]
+        self.proxy = parse_hostport(proxy) if proxy else None
 
         self.server = q.get('UA', ['nginx/1.2.2'])[0]
 
@@ -251,7 +251,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     try:
                         logging.info('server %d request %s:%d from %s:%d, %s' % (self.server.server_address[1],
                                      addr, port, self.client_address[0], self.client_address[1], user))
-                        remote = create_connection((addr, port), timeout=10)
+                        remote = create_connection((addr, port), timeout=10, proxy=self.server.proxy)
                         remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                         _send(0, cipher)
                         # self.remote.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -298,7 +298,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         remote = None
                         logging.info('server %d SS request %s:%d from %s:%d %s' % (self.server.server_address[1],
                                      addr, port, self.client_address[0], self.client_address[1], 'with ota' if ota else ''))
-                        remote = create_connection((addr, port), timeout=10)
+                        remote = create_connection((addr, port), timeout=10, proxy=self.server.proxy)
                         if ota:
                             return self.ssforward_tcp_ota(self.connection, remote, pskcipher, timeout=60)
                         return self.ssforward_tcp(self.connection, remote, pskcipher, timeout=60)

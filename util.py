@@ -39,7 +39,45 @@ def getaddrinfo(host, port=None, family=0, socktype=0, proto=0, flags=0):
     return socket.getaddrinfo(host, port, family, socktype, proto, flags)
 
 
-def create_connection(address, timeout=object(), source_address=None):
+def read_response_line(fp):
+    line = fp.readline()
+    if not line.startswith(b'HTTP'):
+        raise IOError(0, 'bad response line: %r' % line)
+    version, _, status = line.strip().partition(b' ')
+    status, _, reason = status.partition(b' ')
+    status = int(status)
+    return line, version, status, reason
+
+
+def read_header_data(fp):
+    header_data = []
+    while True:
+        line = fp.readline()
+        header_data.append(line)
+        if line in (b'\r\n', b'\n', b'\r'):  # header ends with a empty line
+            break
+        if not line:
+            raise IOError(0, 'remote socket closed')
+    return b''.join(header_data)
+
+
+def create_connection(address, timeout=object(), proxy=None, source_address=None):
+    # proxy: http proxy only, using CONNECT method ('ip/hostname', port)
+    if proxy:
+        soc = _create_connection(proxy, timeout=timeout, source_address=source_address)
+        s = ['CONNECT %s:%s HTTP/1.1\r\n' % (address[0], address[1]), ]
+        s.append('Host: %s:%s\r\n\r\n' % (address[0], address[1]))
+        soc.sendall(''.join(s).encode())
+        remoterfile = soc.makefile('rb', 0)
+        line, version, status, reason = read_response_line(remoterfile)
+        if status != 200:
+            raise IOError(0, 'create tunnel via %s failed!' % proxy)
+        read_header_data(remoterfile)
+        return soc
+    return _create_connection(address, timeout=timeout, source_address=source_address)
+
+
+def _create_connection(address, timeout=object(), source_address=None):
     """Connect to *address* and return the socket object.
 
     Convenience function.  Connect to *address* (a 2-tuple ``(host,
