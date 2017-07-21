@@ -174,7 +174,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     data = pskcipher.decrypt(self.rfile.read(req_len))
                     data = io.BytesIO(data)
                     ts = data.read(4)
-                    if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
+                    if abs(struct.unpack('>I', ts)[0] - time.time()) > 120:
                         # possible replay attack
                         logging.error('bad timestamp. client_ip: %s' % self.client_address[0])
                         break
@@ -236,7 +236,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                     data = cipher.decrypt(ct)
                     buf = io.BytesIO(data)
                     ts = buf.read(4)
-                    if abs(struct.unpack('>I', ts)[0] - time.time()) > 600:
+                    if abs(struct.unpack('>I', ts)[0] - time.time()) > 120:
                         logging.error('bad timestamp, possible replay attrack. client ip: %s' % self.client_address[0])
                         # KeyManager.del_key(client_pkey)
                         # _send(1, None)

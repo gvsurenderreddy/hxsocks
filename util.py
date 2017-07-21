@@ -191,7 +191,7 @@ class iv_checker(object):
 
     def __init__(self, maxlen, timeout):
         self.timeout = timeout * 10
-        self.store = defaultdict(lambda: iv_store(maxlen, timeout))
+        self.store = defaultdict(lambda: iv_store(maxlen, timeout * 2))
 
     def check(self, key, iv):
         if random.random() < 0.01:
