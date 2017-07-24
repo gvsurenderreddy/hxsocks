@@ -321,6 +321,7 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
     def forward_tcp(self, local, remote, cipher, pskcipher, timeout=60):
         readable = 1
         writeable = 1
+        closed = 0
         fds = [local, remote]
         total_send = 0
         try:
@@ -337,28 +338,29 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         logging.debug('client closed')
                         fds.remove(local)
                         remote.shutdown(socket.SHUT_WR)
-                        break
-                    ct_len = struct.unpack('>H', pskcipher.decrypt(ct_len))[0]
-                    ct = self.rfile.read(ct_len)
-                    data = cipher.decrypt(ct)
-                    pad_len = ord(data[0])
-                    cmd = ord(data[-1])
-                    if 0 < pad_len < 8:
-                        # fake chunk, drop
-                        # TODO: respond fake chunk if pad_len == 1, could cause trouble
-                        pass
+                        closed = 1
                     else:
-                        data = data[1:0-pad_len] if pad_len else data[1:]
-                        if data:
-                            remote.sendall(data)
+                        ct_len = struct.unpack('>H', pskcipher.decrypt(ct_len))[0]
+                        ct = self.rfile.read(ct_len)
+                        data = cipher.decrypt(ct)
+                        pad_len = ord(data[0])
+                        cmd = ord(data[-1])
+                        if 0 < pad_len < 8:
+                            # fake chunk, drop
+                            # TODO: respond fake chunk if pad_len == 1, could cause trouble
+                            pass
                         else:
-                            logging.debug('client close, gracefully')
-                            if cmd:
-                                remote.close()
+                            data = data[1:0-pad_len] if pad_len else data[1:]
+                            if data:
+                                remote.sendall(data)
                             else:
-                                remote.shutdown(socket.SHUT_WR)
-                            fds.remove(local)
-                            readable = 0
+                                logging.debug('client close, gracefully')
+                                if cmd:
+                                    remote.close()
+                                else:
+                                    remote.shutdown(socket.SHUT_WR)
+                                fds.remove(local)
+                                readable = 0
 
                 if remote in ins:
                     data = remote.recv(self.bufsize)
@@ -370,12 +372,20 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             ct = cipher.encrypt(_data)
                             _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
                             local.sendall(_data)
+                    if writeable and readable and not closed and random.random() < 0.1:
+                        # request fake chunk
+                        _data = chr(1) + b'\x00' * random.randint(1024, 8196)
+                        ct = cipher.encrypt(_data)
+                        _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
+                        local.sendall(_data)
                     total_send += len(data)
                     padding_len = random.randint(8, 255)
                     data = chr(padding_len) + data + b'\x00' * padding_len
                     ct = cipher.encrypt(data)
                     data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
                     local.sendall(data)
+                if closed:
+                    break
         except socket.timeout:
             pass
         except (OSError, IOError) as e:
