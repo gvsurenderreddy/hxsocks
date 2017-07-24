@@ -322,16 +322,29 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
         readable = 1
         writeable = 1
         closed = 0
+        close_count = 0
         fds = [local, remote]
         total_send = 0
         try:
             while fds:
                 if len(fds) < 2:
-                    timeout = 10
+                    timeout = 3
                 ins, _, _ = select.select(fds, [], [], timeout)
                 if not ins:
                     logging.debug('timed out')
-                    break
+                    close_count += 1
+                    if remote in fds:
+                        fds.remove(remote)
+                        remote.shutdown(socket.SHUT_RD)
+                        if writeable:
+                            padding_len = random.randint(8, 255)
+                            data = chr(padding_len) + b'\x00' * padding_len
+                            ct = cipher.encrypt(data)
+                            data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
+                            local.sendall(data)
+                            writeable = 0
+                    if close_count > 2:
+                        break
                 if local in ins:
                     ct_len = self.rfile.read(2)
                     if not ct_len:
