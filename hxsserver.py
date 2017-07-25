@@ -360,8 +360,11 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                         cmd = ord(data[-1])
                         if 0 < pad_len < 8:
                             # fake chunk, drop
-                            # TODO: respond fake chunk if pad_len == 1, could cause trouble
-                            pass
+                            if pad_len == 1 and writeable:
+                                _data = chr(2) + b'\x00' * random.randint(1024, 8196)
+                                ct = cipher.encrypt(_data)
+                                _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
+                                local.sendall(_data)
                         else:
                             data = data[1:0-pad_len] if pad_len else data[1:]
                             if data:
@@ -385,12 +388,12 @@ class HXSocksHandler(SocketServer.StreamRequestHandler):
                             ct = cipher.encrypt(_data)
                             _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
                             local.sendall(_data)
-                    if writeable and readable and not closed and random.random() < 0.1:
-                        # request fake chunk
-                        _data = chr(1) + b'\x00' * random.randint(1024, 8196)
-                        ct = cipher.encrypt(_data)
-                        _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
-                        local.sendall(_data)
+                    # if writeable and readable and not closed and random.random() < 0.1:
+                    #     # request fake chunk
+                    #     _data = chr(1) + b'\x00' * random.randint(1024, 8196)
+                    #     ct = cipher.encrypt(_data)
+                    #     _data = pskcipher.encrypt(struct.pack('>H', len(ct))) + ct
+                    #     local.sendall(_data)
                     total_send += len(data)
                     padding_len = random.randint(8, 255)
                     data = chr(padding_len) + data + b'\x00' * padding_len
